@@ -1,0 +1,18 @@
+Value Weighted Equity: Value Weighted diversification index for equity. All others are ew
+cohort members. Tab 1: Table 1
+t-trend tab 2: Table 2 with all time cohorts
+tab 3: Table 3 or all the common countries
+tab 4: Table 4
+RHS variables tab 5: Table 5
+Tab 6: Table 6
+Tab 7: Table 7
+Tab 8: Table 8
+Tab 9: Table 9
+Tab 10: Table 10
+Figure 1 and Figure 2: The figures data. Cells in yellow means that the value was truncated to fit in the plot's max or min
+Fig 3: Figure 3
+Figure 4: it's split in three sheets for each asset class.
+Fig 5: Figure 5
+Fig 6: Figure 6
+Appendix Fig 1: Apeendix figure 1 with cumulative variance explained
+Apeendix Fig 2: Appendix figure 2 with time series of each eigen cumulative variance
