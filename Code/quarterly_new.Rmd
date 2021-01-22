@@ -1156,8 +1156,8 @@ construct_table9_data = function(grep_search)
   icrg = merge(economic, financial, all=TRUE)
   icrg = merge(icrg, political, all=TRUE)
   icrg = merge(icrg, liquidity, all=TRUE)
-  # icrg = merge(icrg, liquidity_bd, all=TRUE)
-  # icrg = merge(icrg, liquidity_rt, all=TRUE)
+  icrg = merge(icrg, liquidity_bd, all=TRUE)
+  icrg = merge(icrg, liquidity_rt, all=TRUE)
   icrg = merge(icrg, institution, all=TRUE)
   icrg$Country = paste0(substring(grep_search,2), icrg$Country)
   icrg$Year = as.Date(paste0(icrg$Year, "-10-01"))
@@ -1545,7 +1545,7 @@ cor(factors[-1])
 Var1 is PC
 
 ```{r echo=FALSE, warning=FALSE}
-write.csv(round(cor(subset(construct_table9_data("^eq_"), select = c(TED, VIX, SENT, FEDFUNDS, INTERNET, ERM, EUROZONE, COVID, PC,Aggregate.Economic.Risk,Aggregate.Financial.Risk,Aggregate.Poliitical.Risk,liquidity,liquidity_bd,liquidity_rt))),4),"temp.csv")
+round(cor(subset(construct_table9_data("^eq_"), select = c(TED, VIX, SENT, FEDFUNDS, INTERNET, ERM, EUROZONE, COVID, PC,Aggregate.Economic.Risk,Aggregate.Financial.Risk,Aggregate.Poliitical.Risk,liquidity,liquidity_bd,liquidity_rt))),4)
 ```
 
 # Appendix Table 1
