@@ -1529,7 +1529,7 @@ cor(factors[-1])
 Var1 is PC
 
 ```{r echo=FALSE, warning=FALSE}
-cor(subset(construct_table9_data("^eq_"), select = c(TED, VIX, SENT, FEDFUNDS, INTERNET, ERM, EUROZONE, COVID,liquidity, PC)))
+write.csv(round(cor(subset(construct_table9_data("^eq_"), select = c(TED, VIX, SENT, FEDFUNDS, INTERNET, ERM, EUROZONE, COVID,liquidity, PC,Aggregate.Economic.Risk,Aggregate.Financial.Risk,Aggregate.Poliitical.Risk))),4),"temp.csv")
 ```
 
 # Appendix Table 1
