@@ -1,0 +1,1831 @@
+---
+output: word_document
+always_allow_html: true
+---
+
+# Excel Modifications
+
+* delete all text row except first row
+* shift all first cells to the right once
+* Type "Date" in the first cell
+* convert to csv
+
+# Table 1 Construction
+
+* Difference in the log index price is stored in each dataframe
+* If for a given quarter, a country has less than 15 returns, then all the returns of that year for the country in question is marked as NA to remove that period from our analysis.
+* Then we see which countries have valid returns for each period in question. If they have valid returns even for one quarter in the given period, then it's included in the list.
+
+```{r setup, include=FALSE}
+setwd("C:/Users/karti/OneDrive/Desktop/UCLA MFE/GSR/Finance/CGR2020/Code")
+library(lubridate)
+# library(DataAnalytics)
+library(dplyr)
+library(rlang)
+library(data.table)
+library(zoo)
+library(stringr)
+library(plm)
+
+#reading the data
+#excel modifications: delete all text row except first row
+# shift all first cells to the right once
+# Make fist column as Date
+getData = function(path)
+{
+  equity = read.csv(path)
+  colnames(equity)[1] = "Date"
+  equity = equity[, -grep("^X", colnames(equity))]
+  colnames(equity)[-1] = tolower(colnames(equity[-1]))
+  equity$Date= as.Date(equity$Date,"%m/%d/%Y")
+  equity = equity[equity$Date < as.Date("2020-07-01"),]
+  equity
+}
+
+#get all the country names
+getCountries = function(equity, condition)
+{
+  temp = equity[condition,]
+  temp = temp[colSums(!is.na(temp)) > 0]
+  colnames(temp[,-1])
+}
+
+#convert to returns and set same values to NA
+log_return = function(equity)
+{
+  equity[,-1] = log(equity[,-1]) # exclude Date
+  equity[-1,-1] = apply(equity[,-1], 2, diff)
+  # equity[-1,-1] = data.frame(diff(as.matrix(equity[,-1])))
+  equity = equity[-1,] # remove the first row because of lag
+  # equity = cbind(equity$Date[-1],equity.frame(diff(as.matrix(equity[,-1])))/equity[-1,-1])
+  equity[equity==0] = NA
+  equity[equity==Inf] = NA
+  equity
+}
+
+library(timeDate)
+
+#returns must be valid for at least 15 days in a quarter
+fifteen_check = function(equity)
+{
+  equity$quarter = as.Date(timeFirstDayInQuarter(equity$Date, format = "%Y-%m-%d", zone = "", FinCenter = ""))
+  countries = getCountries(equity)
+  for(country in countries)
+  {
+    temp = equity %>% group_by(quarter) %>% summarise(count = sum(!is.na(!!sym(country))))
+    years = temp[temp$count<15,]$quarter
+    equity[equity$quarter %in% years,country] = NA
+  }
+  equity = subset(equity, select=-c(quarter))
+  equity
+}
+
+initialize_data = function(path)
+{
+  return(fifteen_check(log_return(getData(path))))
+}
+
+equity = initialize_data("data/Equity.csv")
+bond = initialize_data("data/Bond.csv")
+reit = initialize_data("data/REIT.csv")
+
+# equity = fifteen_check(equity)
+# bond = fifteen_check(bond)
+# reit = fifteen_check(reit)
+
+table1 = matrix(ncol=2,nrow=0)
+colnames(table1) = c("year","countries")
+
+listCountry = getCountries(equity, equity$Date < as.Date("1974-01-01"))
+table1 = rbind(table1,c("pre 1974",paste(listCountry, collapse="\t")))
+
+listCountry = setdiff(getCountries(equity, equity$Date >= as.Date("1974-01-01") & equity$Date <= as.Date("1983-12-31")), listCountry)
+table1 = rbind(table1,c("1974-83",paste(listCountry, collapse="\t")))
+
+listCountry = setdiff(getCountries(equity, equity$Date >= as.Date("1984-01-01") & equity$Date <= as.Date("1993-12-31")), c(listCountry,getCountries(equity, equity$Date < as.Date("1974-01-01"))))
+table1 = rbind(table1,c("1984-93",paste(listCountry, collapse="\t")))
+
+listCountry = setdiff(getCountries(equity, equity$Date > as.Date("1994-01-01")), c(listCountry, getCountries(equity, equity$Date < as.Date("1974-01-01")), getCountries(equity, equity$Date >= as.Date("1974-01-01") & equity$Date <= as.Date("1983-12-31"))))
+table1 = rbind(table1,c("post 1993",paste(listCountry, collapse="\t")))
+
+
+table2 = matrix(ncol=2,nrow=0)
+colnames(table2) = c("year","countries")
+
+listCountry = getCountries(bond, bond$Date < as.Date("1986-01-01"))
+table2 = rbind(table2,c("pre 1986",paste(listCountry, collapse="\t")))
+
+listCountry = getCountries(bond, bond$Date >= as.Date("1986-01-01") & bond$Date < as.Date("1999-01-01"))
+table2 = rbind(table2,c("1986-99",paste(listCountry, collapse="\t")))
+
+
+listCountry = getCountries(bond, bond$Date >= as.Date("2000-01-01"))
+table2 = rbind(table2,c("post 1999",paste(listCountry, collapse="\t")))
+
+
+table3 = matrix(ncol=2,nrow=0)
+colnames(table3) = c("year","countries")
+
+listCountry = getCountries(reit, reit$Date < as.Date("2000-01-01"))
+table3 = rbind(table3,c("pre 2000",paste(listCountry, collapse="\t")))
+
+listCountry = getCountries(reit, reit$Date >= as.Date("2000-01-01"))
+table3 = rbind(table3,c("post 2000",paste(listCountry, collapse="\t")))
+
+# table1
+
+library(knitr)
+library(kableExtra)
+
+# add prefixes to distinguish between various asset classes
+colnames(equity)[-1] = paste("eq_",colnames(equity)[-1], sep="")
+colnames(bond)[-1] = paste("bd_",colnames(bond)[-1], sep="")
+colnames(reit)[-1] = paste("rt_",colnames(reit)[-1], sep="")
+data = merge(equity, bond, by="Date", all=TRUE)
+data = merge(data, reit, by="Date", all=TRUE)
+rm(equity)
+rm(reit)
+rm(bond)
+
+# lag the data for the north american countries
+lag_count = function(data, column)
+{
+  if(column %in% colnames(data))
+    data[,paste0(column, "_lag")] = shift(data[column])
+  data
+}
+
+# data = fifty_check(data)
+data = fifteen_check(data)
+```
+
+```{r echo=FALSE, results='asis'}
+
+kable(data.frame(table1),longtable=TRUE, caption = "Equity") %>%
+  column_spec(2, width = "15cm")
+
+kable(data.frame(table2),longtable=TRUE, caption = "Bond") %>%
+  column_spec(2, width = "15cm")
+
+kable(data.frame(table3),longtable=TRUE, caption = "REIT") %>%
+  column_spec(2, width = "15cm")
+```
+
+
+# Preliminary PCA analysis
+
+```{r echo=FALSE}
+
+data = lag_count(data, "eq_us")
+data = lag_count(data, "bd_us")
+data = lag_count(data, "rt_us")
+data = lag_count(data, "eq_canada")
+data = lag_count(data, "bd_canada")
+data = lag_count(data, "rt_canada")
+data$quarter = as.Date(timeFirstDayInQuarter(data$Date, format = "%Y-%m-%d", zone = "", FinCenter = ""))
+
+
+#construct pre86
+getCohort = function(date)
+{
+  pre86 = data[data$Date < as.Date(date),]
+  pre86 = pre86[colSums(!is.na(pre86)) > 0]
+  pre86_count = colnames(pre86)
+  pre86_count
+}
+
+pre86_count = getCohort("1986-01-01")
+# rm(pre86)
+
+from86 = data[data$Date >= as.Date("1986-01-01"),pre86_count]
+
+# from86$year = format(from86$Date,"%Y")
+from86[is.na(from86)] = 0
+quartersList = unique(from86$quarter)
+
+
+
+pca_mat = matrix(ncol = (length(from86) - 2), nrow=0)
+
+#get eigens for each quarter
+for(year in quartersList)
+{
+  pca = prcomp(from86[from86$quarter == year,(2:(ncol(from86) - 1))], scale. = FALSE, center = FALSE)$sdev
+  pca_mat = rbind(pca_mat, cumsum(pca^2 / sum(pca^2)))
+  rm(pca)
+}
+rm(from86)
+pca_cutoff = min(which(colMeans(pca_mat)*100 > 90))
+```
+
+* We check which countries have a valid return before the year 1986. If a country has valid returns with just 1 quarter, then it's included in the analysis.
+The selected assets are:
+
+```{r echo=FALSE}
+pre86_count[-1]
+```
+
+eq represents equity, bd represents bond and rt represents REIT
+
+* We use the selected countries in our PCA analysis for the period between 1986-2020.
+* Equity, BOnd and REIT returns of US, Canada are shifted to one day and added in our data as seperate columns while retaining the original North American returns time series.
+* PCA is done using the covariance matrix for each years daily returns to obtain a set of eigen values and vectors.
+* Average is taken across year for the cumulative variance explained by each PC. PCA cutoff is set for the average which explains $90\%$ of the variance.
+
+
+```{r echo=FALSE, fig.cap="Appendix Fig 1"}
+barplot(colMeans(pca_mat[,1:pca_cutoff])*100, xlab = "Eigen Value", ylab="Variance Explained(%)", names.arg = (1:pca_cutoff))
+plot(100-colMeans(pca_mat)*100, type="l", ylab="Unexplained Variance left", xlab = "PC")
+```
+
+## Variance Explained by each PC:
+
+```{r echo=FALSE}
+# plot(100-colMeans(pca_mat)*100, type="l", ylab="Unexplained Variance left", xlab = "PC")
+colMeans(pca_mat)*100
+```
+
+```{r echo=FALSE, fig.cap="Appendix Fig 2"}
+matplot(quartersList, (pca_mat[,1:pca_cutoff]*100), type="l", lty=1, xlab="year", ylab="Cumulative Variance Explained(%)",axes=FALSE)
+data.frame(quartersList, (pca_mat[,1:pca_cutoff]*100))
+axis(2, las=1)
+axis.Date(1,at=quartersList)
+# legend('bottomright', legend=paste("eig",(1:pca_cutoff)), col=(1:pca_cutoff), cex=(0.75), lty=1)
+```
+
+# Regressions using the PC global factors
+
+* Train year is selected as the previous year to which we are doing regression for
+* Only countries which have a valid return in both the training period and test period are used in the dataset to avoid cases like Columbia which has valid 15 days of returns in some quarters and less than 15 days of returns in the consecutive year. If the country doesn't qualify these conditions, then r square is not considered for the firm for the testing year.
+* If the country was present before 1986, then the PC are constructed by removing that firm from the equation while we do OLS for that firm, otherwise all the pre86 firms are used to construct the PC.
+* Regression are run for each country, each year and the resulting $adjusted R^2$ is recorded.
+* For running the regression, we get the eigen vectors of the train year's returns covariance matrix and then it with the returns matrix of the subsequent year which contains the daily returns time series for each country to get the factor loadings. This becomes our explanatory variables. The dependent variable is the daily return for each country. 
+* So this regression is run for each country's return time series.
+
+```{r echo=FALSE, message=FALSE}
+countries = colnames(data[(2:(ncol(data) - 1))])
+countries = countries[-grep("lag$", countries)]# remove the lag columns
+# data$year = format(data$Date,"%Y")
+
+pca_score = function(temp, temp2)
+{
+  eig = eigen(cov(temp))$vectors
+  # pca = t(eig)%*%t(as.matrix(temp2))
+  pca = as.matrix(temp2) %*% eig
+  return((pca))
+}
+
+pre86_count = pre86_count[pre86_count!="quarter"]
+
+getAdjRsq = function(data)
+{
+  rsq = matrix(ncol=length(countries), nrow=(length(quartersList)))
+  for(i in (1:(length(quartersList))))
+  {
+    #the country should have 15 returns in both test and train year
+    train_year = quartersList[i] %m-% months(3)
+    temp = data[data$quarter == train_year,]
+    temp = temp[,colSums(is.na(temp))<nrow(temp)]
+    train_country = colnames(temp)
+    temp = data[data$quarter == quartersList[i],]
+    temp = temp[,colSums(is.na(temp))<nrow(temp)]
+    train_country = intersect(colnames(temp), train_country)
+    
+    for(j in (1:(length(countries))))
+    {
+      country = countries[j]
+      if(country %in% train_country)
+      {
+        temp = data[data$quarter == train_year,pre86_count[-1]]
+        temp2 = data[data$quarter == quartersList[i],pre86_count[-1]]
+        temp = temp[colSums(!is.na(temp)) > 0]
+        temp2 = temp2[colSums(!is.na(temp2)) > 0]
+        temp[is.na(temp)] = 0
+        temp2[is.na(temp2)] = 0
+        if(country %in% pre86_count)
+        {
+          temp = temp[, -grep(substring(country, 4), colnames(temp))]
+          temp2 = temp2[, -grep(substring(country, 4), colnames(temp2))]
+          
+          
+          rsq[i,j] = summary(lm(data[data$quarter == quartersList[i],country][1:64] ~ pca_score(temp[1:64,], temp2[1:64,])[,1:pca_cutoff]))$adj.r.squared
+        }
+        else
+        {
+          rsq[i,j] = summary(lm(data[data$quarter == quartersList[i],country][1:64] ~ pca_score(temp[1:64,], temp2[1:64,])[,1:pca_cutoff]))$adj.r.squared
+        }
+      }
+      else
+      {
+        rsq[i,j] = NA
+      }
+    }
+  }
+  rsq
+}
+rsq = getAdjRsq(data)
+
+mkt_cap = read.csv("data/mkt_cap.csv")
+
+colnames(mkt_cap)[1] = "Country.Name"
+mkt_cap$`Country.Name` = tolower(mkt_cap$`Country.Name`)
+mkt_cap$`Country.Name` = str_replace_all(mkt_cap$`Country.Name`," ",".")
+mkt_cap[mkt_cap$`Country.Name` == "cote.d'ivoire",]$`Country.Name` = "côte.d.ivoire"
+mkt_cap[mkt_cap$`Country.Name` == "egypt,.arab.rep.",]$`Country.Name` = "egypt"
+mkt_cap[mkt_cap$`Country.Name` == "hong.kong.sar,.china",]$`Country.Name` = "hong.kong"
+mkt_cap[mkt_cap$`Country.Name` == "korea,.rep.",]$`Country.Name` = "south.korea"
+mkt_cap[mkt_cap$`Country.Name` == "north.macedonia",]$`Country.Name` = "macedonia"
+mkt_cap[mkt_cap$`Country.Name` == "russian.federation",]$`Country.Name` = "russia"
+mkt_cap[mkt_cap$`Country.Name` == "slovak.republic",]$`Country.Name` = "slovakia"
+mkt_cap[mkt_cap$`Country.Name` == "united.states",]$`Country.Name` = "us"
+mkt_cap[mkt_cap$`Country.Name` == "united.kingdom",]$`Country.Name` = "uk"
+mkt_cap[mkt_cap$`Country.Name` == "venezuela,.rb",]$`Country.Name` = "venezuela"
+
+temp_countries = unique(substr(countries,4,1000))
+# setdiff(temp_countries, mkt_cap[mkt_cap$Country.Name %in% temp_countries,]$Country.Name)
+mkt_cap$Country.Name = paste0("eq_",mkt_cap$Country.Name)
+mkt_cap = mkt_cap[mkt_cap$Country.Name %in% countries,]
+# rm(temp_countries)
+colnames(mkt_cap)[-1] = substr(colnames(mkt_cap)[-1],2, 1000)
+mkt_cap = mkt_cap[order(mkt_cap$Country.Name),]
+mkt_cap = mkt_cap[,colSums(is.na(mkt_cap))<nrow(mkt_cap)]
+mkt_cap = mkt_cap[,c(1,13:46)]
+sums = colSums(mkt_cap[,-1], na.rm=TRUE)
+
+# wavg = function(group, avg_name, weight_name)
+# {
+#   return (group[avg_name] * group[weight_name]).sum() / group[weight_name].sum()
+# }
+
+rm(sums)
+
+weighted_rsq = matrix(ncol = 136, nrow = nrow(mkt_cap))
+
+for(i in 1:136)
+{
+  for(j in (1:length(mkt_cap$Country.Name)))
+  {
+    weighted_rsq[j,i] = (1- rsq[which(countries == mkt_cap$Country.Name[j]), i]) * mkt_cap[mkt_cap$Country.Name == mkt_cap$Country.Name[j],as.character(year(quartersList[i]))]/sum(mkt_cap[,as.character(year(quartersList[i]))], na.rm = TRUE)
+
+  }
+}
+# mkt_cap[mkt_cap$Country.Name == "argentina",as.character(year(quartersList[i]))]/sum(mkt_cap[,as.character(year(quartersList[i]))], na.rm = TRUE)
+# eq = (colSums(weighted_rsq, na.rm = TRUE))*100
+eq = (rowMeans(1 - rsq[,grep("^eq_", countries)], na.rm = TRUE))*100
+bd = (rowMeans(1 - rsq[,grep("^bd_", countries)], na.rm = TRUE))*100
+rt = (rowMeans(1 - rsq[,grep("^rt_", countries)], na.rm = TRUE))*100
+
+quarterReg = as.numeric(as.factor(quartersList))
+eq_lm = lm(eq~(quartersList))
+bd_lm = lm(bd~(quartersList))
+rt_lm = lm(rt~(quartersList))
+```
+
+```{r echo=FALSE, fig.cap="Fig 1", message=FALSE, fig.height=16, fig.width=14}
+par(mfrow = c(3,1))
+plot(quartersList, eq, type="l", ylab="Equity", col="blue", ylim = c(20,100), lwd=2) + abline(eq_lm$coefficients, col="red", lty=2, lwd=2)
+data.frame(quartersList, eq)
+plot(quartersList, bd, type="l", ylab="Bond", col="blue", ylim=c(20,100), lwd=2) + abline(bd_lm$coefficients, col="red", lty=2, lwd=2)
+data.frame(quartersList, bd)
+plot(quartersList, rt, type="l", ylab="REIT", col="blue", ylim = c(20,100), lwd=2) + abline(rt_lm$coefficients, col="red", lty=2, lwd=2)
+par(mfrow = c(1,1))
+data.frame(quartersList, rt)
+```
+
+This plot is the simple average of all the assets
+
+```{r echo=FALSE, fig.cap="Fig 2", message=FALSE, fig.width=14}
+eq = (rowMeans(1 - rsq, na.rm = TRUE))*100
+eq_lm = lm(eq~(quartersList))
+plot(quartersList, eq, type="l", ylab="All Assets", col="blue", ylim=c(20,100), lwd=2) + abline(eq_lm$coefficients, col="red", lty=2, lwd=2)
+data.frame(quartersList, eq)
+```
+
+The recent spike in the diversification index might be explained by relative difference in cases and thus economy.
+
+```{r echo=FALSE, message=FALSE}
+eq = (rowMeans(1 - rsq[,grep("^eq_", countries)], na.rm = TRUE))*100
+bd = (rowMeans(1 - rsq[,grep("^bd_", countries)], na.rm = TRUE))*100
+rt = (rowMeans(1 - rsq[,grep("^rt_", countries)], na.rm = TRUE))*100
+
+#calculating standard deviation for each country time series
+sd_group = function(equity)
+{
+  sd = matrix(ncol=length(countries), nrow=(length(quartersList)))
+  # equity$year = format(equity$Date,"%Y")
+  countries2 = getCountries(equity)
+  for(i in 1:length(countries2))
+  {
+    if (countries2[i] %in% countries)
+    {
+      sd[,i] = (equity[,c("quarter",countries2[i])] %>% group_by(quarter) %>% summarise(count = sd(!!sym(countries2[i]), na.rm=TRUE)))$count
+    }
+  }
+  # equity = subset(equity, select=-c(year))
+  sd
+}
+count_sd = sd_group(data[data$Date >= as.Date("1986-01-01"),])
+```
+
+# Bringing risk into the picture
+
+* it's the average daily standard deviation quaterly
+* first table is diverisification and second is sd
+
+```{r echo=FALSE, fig.cap="Fig 4", message=FALSE, fig.height=16, fig.width=14}
+par(mfrow = c(3,1))
+
+plot(quartersList, eq, type="l", ylab="Equity", col="blue", ylim = c(20,100), lwd=2)
+par(new = TRUE)
+plot(quartersList, rowMeans(count_sd[,grep("^eq_", countries)], na.rm = TRUE)*100*sqrt(64), col="red", xlab = "", ylab = "", type="l", axes = FALSE, lwd=2)
+axis(side = 4, at = pretty(c(0,50)))
+mtext("Risk", side = 4, line = 3)
+
+data.frame(quartersList, eq)
+data.frame(quartersList, rowMeans(count_sd[,grep("^eq_", countries)], na.rm = TRUE)*100*sqrt(64))
+
+
+
+plot(quartersList, bd, type="l", ylab="Bond", col="blue", ylim=c(20,100), lwd=2)
+par(new = TRUE)
+plot(quartersList, rowMeans(count_sd[,grep("^bd_", countries)], na.rm = TRUE)*100*sqrt(64), col="red", xlab = "", ylab = "", type="l", axes = FALSE, lwd=2)
+axis(side = 4, at = pretty(c(0,50)))
+mtext("Risk", side = 4, line = 3)
+
+data.frame(quartersList, bd)
+data.frame(quartersList, rowMeans(count_sd[,grep("^bd_", countries)], na.rm = TRUE)*100*sqrt(64))
+
+plot(quartersList, rt, type="l", ylab="REIT", col="blue", ylim = c(20,100), lwd=2)
+par(new = TRUE)
+plot(quartersList, rowMeans(count_sd[,grep("^rt_", countries)], na.rm = TRUE)*100*sqrt(64), col="red", xlab = "", ylab = "", type="l", axes = FALSE, lwd=2)
+axis(side = 4, at = pretty(c(0,50)))
+mtext("Risk", side = 4, line = 3)
+
+data.frame(quartersList, rt)
+data.frame(quartersList, rowMeans(count_sd[,grep("^rt_", countries)], na.rm = TRUE)*100*sqrt(64))
+
+par(mfrow=c(1,1))
+```
+
+```{r echo=FALSE, fig.cap="Fig 5", message=FALSE, fig.width=14}
+eq = (rowMeans(1 - rsq, na.rm = TRUE))*100
+
+# par(mar = c(5, 4, 4, 4) + 0.3)              # Additional space for second y-axis
+plot(quartersList, eq, type="l", ylab="All Assets", col="blue", ylim = c(20,100), lwd=2)              # Create first plot
+par(new = TRUE)                             # Add new plot
+plot(quartersList, rowMeans(count_sd, na.rm = TRUE)*100*sqrt(64), col="red", xlab = "", ylab = "", type="l", axes = FALSE, lwd=2)
+axis(side = 4, at = pretty(c(0,40)))      # Add second axis
+mtext("Risk", side = 4, line = 3)
+
+data.frame(quartersList, eq)
+data.frame(quartersList, rowMeans(count_sd, na.rm = TRUE)*100*sqrt(64))
+```
+
+## Correlations
+
+```{r echo=FALSE, results='asis'}
+
+kable(round(data.frame(cor(rowMeans(count_sd[,grep("^eq_", countries)], na.rm = TRUE)*100*sqrt(64), (rowMeans(1 - rsq[,grep("^eq_", countries)], na.rm = TRUE))*100)), 3)
+      ,longtable=TRUE, caption = "Equity Correlation with risk")
+
+kable(round(data.frame(cor(rowMeans(count_sd[,grep("^bd_", countries)], na.rm = TRUE)*100*sqrt(64), (rowMeans(1 - rsq[,grep("^bd_", countries)], na.rm = TRUE))*100)),3)
+      ,longtable=TRUE, caption = "Bond Correlation with risk")
+
+kable(round(data.frame(cor(rowMeans(count_sd[,grep("^rt_", countries)], na.rm = TRUE)*100*sqrt(64), (rowMeans(1 - rsq[,grep("^rt_", countries)], na.rm = TRUE))*100)), 3)
+      ,longtable=TRUE, caption = "REIT Correlation with risk")
+
+kable(round(data.frame(cor(rowMeans(count_sd, na.rm = TRUE)*100*sqrt(64), (rowMeans(1 - rsq, na.rm = TRUE))*100)),3)
+      ,longtable=TRUE, caption = "All Assets Correlation with risk")
+```
+
+# Seeing NBER
+
+```{r echo=FALSE, fig.cap="Appendix Fig 3", fig.height=16, fig.width=14, message=FALSE}
+eq = (rowMeans(1 - rsq[,grep("^eq_", countries)], na.rm = TRUE))*100
+bd = (rowMeans(1 - rsq[,grep("^bd_", countries)], na.rm = TRUE))*100
+rt = (rowMeans(1 - rsq[,grep("^rt_", countries)], na.rm = TRUE))*100
+
+# bar = c(rep(0,15), 100, rep(0,6), 100, 100, rep(0,3))
+bar = rep(0, length(quartersList))
+names(bar) = quartersList
+bar["2000-01-01"] = 100
+bar["2000-04-01"] = 100
+bar["2000-07-01"] = 100
+bar["2000-10-01"] = 100
+
+bar["2008-01-01"] = 100
+bar["2008-04-01"] = 100
+bar["2008-07-01"] = 100
+bar["2008-10-01"] = 100
+
+bar["2009-01-01"] = 100
+bar["2009-04-01"] = 100
+bar["2009-07-01"] = 100
+bar["2009-10-01"] = 100
+
+par(mfrow=c(3,1))
+
+barplot(bar, names.arg = quartersList, ylim = c(20,100), xpd = FALSE, col = "brown", space=0, border = "brown")
+par(new=TRUE)
+plot(quartersList, eq, type="l", ylab="Equity", col="blue", ylim = c(20,100), axes = FALSE, lwd=2)
+
+data.frame(quartersList, eq)
+
+barplot(bar, names.arg = quartersList, ylim = c(20,100), xpd = FALSE, col = "brown", space=0, border = "brown")
+par(new=TRUE)
+plot(quartersList, bd, type="l", ylab="Bond", col="blue", ylim = c(20,100), axes = FALSE, lwd=2)
+
+data.frame(quartersList, bd)
+
+barplot(bar, names.arg = quartersList, ylim = c(20,100), xpd = FALSE, col = "brown", space=0, border = "brown")
+par(new=TRUE)
+plot(quartersList, rt, type="l", ylab="REIT", col="blue", ylim = c(20,100), axes = FALSE, lwd=2)
+
+data.frame(quartersList, rt)
+
+par(mfrow=c(1,1))
+```
+
+# Table 2
+
+* There should be a return for at least 2 quarters to have a non NA value. 
+* OLS is applied with $1-R^2$ as the dependent and quarters as the explanatory variable. The slope and the tsat of the slope are recorded and stored. 
+
+```{r echo=FALSE, results='asis', warning=FALSE}
+# adding Newey West errors
+NW = function(reg)
+{
+  
+  a = summary(reg)
+  
+  a$coefficients = unclass(lmtest::coeftest(
+    reg,
+    vcov. = sandwich::NeweyWest(
+      reg,
+      lag = 1,
+      prewhite = FALSE,
+      adjust = TRUE
+    )
+  ))
+  
+  a$coefficients
+}
+
+library(pander)
+table2_func = function(rsq, quartersList, caption)
+{
+  coeff = vector()
+  tstat = vector()
+  for(i in (1:length(countries)))
+  {
+    if(sum(is.na(rsq[,i])) != length(quartersList))
+    {
+      a = NW(lm((100-rsq[,i])~quartersList))
+      
+      # with just one observation the value will just go to intercept with zero slope
+      if(nrow(a) == 2)
+      {
+        coeff = append(coeff, a[2,1])
+        tstat = append(tstat, a[2,3])
+      }
+      else
+      {
+        coeff = append(coeff, NA)
+        tstat = append(tstat, NA)
+      }
+    }
+    else
+    {
+      coeff = append(coeff, NA)
+      tstat = append(tstat, NA)
+    }
+  }
+  names(coeff) = countries
+  names(tstat) = countries
+  
+  a = NW(lm((rowMeans(100 - rsq[,grep("^eq_", countries)], na.rm = TRUE))~quartersList))
+  coeff = append(coeff, c("eq_world" = a[2,1]))
+  tstat = append(tstat, c("eq_world" = a[2,3]))
+  
+  a = NW(lm((rowMeans(100 - rsq[,grep("^bd_", countries)], na.rm = TRUE))~quartersList))
+  coeff = append(coeff, c("bd_world" = a[2,1]))
+  tstat = append(tstat, c("bd_world" = a[2,3]))
+  
+  
+  a = NW(lm((rowMeans(100 - rsq[,grep("^rt_", countries)], na.rm = TRUE))~quartersList))
+  coeff = append(coeff, c("rt_world" = a[2,1]))
+  tstat = append(tstat, c("rt_world" = a[2,3]))
+  
+  pander(rbind(data.frame(t(coeff)), data.frame(t(tstat))), split.table = 100, style = 'rmarkdown', caption = caption)
+}
+```
+
+## All time periods
+
+```{r echo=FALSE, results='asis', warning=FALSE}
+table2_func(rsq*100, quarterReg, "Time Trends for Diversification Indexes for Equities, Bonds and REITs")
+```
+
+## Pre 2007
+
+```{r echo=FALSE, results='asis', warning=FALSE}
+table2_func(rsq[which(quartersList<as.Date("2007-01-01")),]*100, quarterReg[(quartersList<as.Date("2007-01-01"))], "Pre 2007")
+```
+
+## 2007-2012
+
+```{r echo=FALSE, results='asis', warning=FALSE}
+table2_func(rsq[intersect(which(quartersList>=as.Date("2007-01-01")),which(quartersList<as.Date("2013-01-01"))),]*100 ,
+       quarterReg[intersect(which(quartersList>=as.Date("2007-01-01")), which(quartersList<as.Date("2013-01-01")))],"2007-2012")
+```
+
+## Post 2012
+
+```{r echo=FALSE, results='asis', warning=FALSE}
+table2_func(rsq[which(quartersList>=as.Date("2013-01-01")),]*100, quarterReg[(quartersList>=as.Date("2013-01-01"))], "Post 2012")
+```
+
+# Table 3
+
+```{r echo=FALSE}
+table3_func = function(rsq, quartersList, caption)
+{
+  # rsq = rsq*100
+  # finding common countires across asset vlasses
+  common = intersect(substr(countries[grep("^rt_", countries)], 4, 1000000L), substr(countries[grep("^eq_", countries)], 4, 1000000L))
+  common = intersect(common, substr(countries[grep("^bd_", countries)], 4, 1000000L))
+  coeff = vector()
+  tstat = vector()
+  for(i in (1:length(common)))
+  {
+    common_rsq = rowMeans(100 - rsq[,grep(common[i], countries)], na.rm = TRUE)
+    reg = lm(common_rsq~quartersList)
+    
+    a = NW(lm(common_rsq~quartersList))
+    coeff = append(coeff, a[2,1])
+    tstat = append(tstat, a[2,3])
+  }
+  names(coeff) = common
+  names(tstat) = common
+  pander(round(rbind(data.frame(t(coeff)), data.frame(t(tstat))), 4), split.table = 100, style = 'rmarkdown', caption = caption)
+}
+```
+
+## All time periods
+
+```{r echo=FALSE, results='asis', warning=FALSE}
+table3_func(rsq*100, quarterReg, "Time Trends for Diversification Indexes Across Three Asset Classes")
+```
+
+## Pre 2007
+
+```{r echo=FALSE, results='asis', warning=FALSE}
+table3_func(rsq[which(quartersList<as.Date("2007-01-01")),]*100, quarterReg[(quartersList<as.Date("2007-01-01"))], "Pre 2007")
+```
+
+## 2007-2012
+
+```{r echo=FALSE, results='asis', warning=FALSE}
+table3_func(rsq[intersect(which(quartersList>=as.Date("2007-01-01")),which(quartersList<as.Date("2013-01-01"))),]*100 ,
+       quarterReg[intersect(which(quartersList>=as.Date("2007-01-01")),which(quartersList<as.Date("2013-01-01")))],"2007-2012")
+```
+
+## Post 2012
+
+```{r echo=FALSE, results='asis', warning=FALSE}
+table3_func(rsq[which(quartersList>=as.Date("2013-01-01")),]*100, quarterReg[(quartersList>=as.Date("2013-01-01"))], "Post 2012")
+```
+
+# Figure 6
+
+* first is developing and second table is emerging
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.height=16, fig.width=14}
+developed = unique(c("norway", "australia", "austria", "belgium", "canada", "denmark", "france", "germany", "hong.kong", "ireland", "italy", "japan", "netherlands", "singapore", "south.africa", "switzerland", "uk", "us",  "malaysia", "norway", "south.korea", "spain", "sweden", "chile", "hungary", "greece", "israel", "luxembourg", "poland", "slovakia", "turkey", "bulgaria", "cyprus", "czech.republic", "estonia", "kazakhstan", "kuwait", "latvia", "lithuania", "slovenia", "malta", "united.arab.emirates", "saudi.arabia", "portugal", "qatar", "bahrain", "croatia","oman", "argentina", "russia ", "montenegro","romania", "malaysia"))
+
+#get colnumbers of developed and emerging countires
+dev_index = which(grepl(paste(developed, collapse="|"), countries))
+emerg_index = which(!grepl(paste(developed, collapse="|"), countries))
+
+par(mfrow=c(3,1))
+
+plot(quartersList, (rowMeans(1 - rsq[, intersect(dev_index, grep("^eq_", countries))], na.rm = TRUE))*100, type="l", ylab="Equity", col="blue", ylim=c(20,100), lwd=2) + lines(quartersList, (rowMeans(1 - rsq[,intersect(emerg_index, grep("^eq_", countries))], na.rm = TRUE))*100, col = "green", lwd=2)
+legend("topleft", legend = c("Developed", "Emerging"), col = c("blue", "green"), lty = 1:1)
+
+data.frame(quartersList, (rowMeans(1 - rsq[, intersect(dev_index, grep("^eq_", countries))], na.rm = TRUE))*100)
+data.frame(quartersList, (rowMeans(1 - rsq[, intersect(emerg_index, grep("^eq_", countries))], na.rm = TRUE))*100)
+
+
+plot(quartersList, (rowMeans(1 - rsq[, intersect(dev_index, grep("^bd_", countries))], na.rm = TRUE))*100, type="l", ylab="Bond", col="blue", ylim=c(10,100), lwd=2) + lines(quartersList, (rowMeans(1 - rsq[,intersect(emerg_index, grep("^bd_", countries))], na.rm = TRUE))*100, col = "green", lwd=2)
+legend("topleft", legend = c("Developed", "Emerging"), col = c("blue", "green"), lty = 1:1)
+
+data.frame(quartersList, (rowMeans(1 - rsq[, intersect(dev_index, grep("^bd_", countries))], na.rm = TRUE))*100)
+data.frame(quartersList, (rowMeans(1 - rsq[, intersect(emerg_index, grep("^bd_", countries))], na.rm = TRUE))*100)
+
+plot(quartersList, (rowMeans(1 - rsq[, intersect(dev_index, grep("^rt_", countries))], na.rm = TRUE))*100, type="l", ylab="REIT", col="blue", ylim=c(20,100), lwd=2) + lines(quartersList, (rowMeans(1 - rsq[,intersect(emerg_index, grep("^rt_", countries))], na.rm = TRUE))*100, col = "green", lwd=2)
+legend("topleft", legend = c("Developed", "Emerging"), col = c("blue", "green"), lty = 1:1)
+
+data.frame(quartersList, (rowMeans(1 - rsq[, intersect(dev_index, grep("^rt_", countries))], na.rm = TRUE))*100)
+data.frame(quartersList, (rowMeans(1 - rsq[, intersect(emerg_index, grep("^rt_", countries))], na.rm = TRUE))*100)
+
+par(mfrow=c(1,1))
+```
+
+The Developed country list is 
+```{r echo=FALSE}
+developed
+```
+
+# Table 4
+
+```{r echo=FALSE, results='asis', warning=FALSE}
+table4 = function(rsq, quartersList, caption)
+{
+  # rsq = rsq*100
+  coeff = vector()
+  tstat = vector()
+  
+  common_rsq = (rowMeans(1 - rsq[, intersect(dev_index, grep("^eq_", countries))], na.rm = TRUE))*100
+  a = NW(lm(common_rsq~quartersList))
+  coeff = append(coeff, a[2,1])
+  tstat = append(tstat, a[2,3])
+  
+  common_rsq = (rowMeans(1 - rsq[,intersect(emerg_index, grep("^eq_", countries))], na.rm = TRUE))*100
+  a = NW(lm(common_rsq~quartersList))
+  coeff = append(coeff, a[2,1])
+  tstat = append(tstat, a[2,3])
+  
+  common_rsq = (rowMeans(1 - rsq[, intersect(dev_index, grep("^bd_", countries))], na.rm = TRUE))*100
+  a = NW(lm(common_rsq~quartersList))
+  coeff = append(coeff, a[2,1])
+  tstat = append(tstat, a[2,3])
+  
+  common_rsq = (rowMeans(1 - rsq[,intersect(emerg_index, grep("^bd_", countries))], na.rm = TRUE))*100
+  a = NW(lm(common_rsq~quartersList))
+  coeff = append(coeff, a[2,1])
+  tstat = append(tstat, a[2,3])
+  
+  common_rsq = (rowMeans(1 - rsq[, intersect(dev_index, grep("^rt_", countries))], na.rm = TRUE))*100
+  a = NW(lm(common_rsq~quartersList))
+  coeff = append(coeff, a[2,1])
+  tstat = append(tstat, a[2,3])
+  
+  common_rsq = (rowMeans(1 - rsq[,intersect(emerg_index, grep("^rt_", countries))], na.rm = TRUE))*100
+  a = NW(lm(common_rsq~quartersList))
+  coeff = append(coeff, a[2,1])
+  tstat = append(tstat, a[2,3])
+  
+  
+  names(coeff) = c("Equity Developed", "Equity Emerging", "Bond Developed", "Bond Emerging", "REIT Developed", "REIT Emerging")
+  names(tstat) = c("Equity Developed", "Equity Emerging", "Bond Developed", "Bond Emerging", "REIT Developed", "REIT Emerging")
+  pander(rbind(data.frame(t(coeff)), data.frame(t(tstat))), split.table = 100, style = 'rmarkdown', caption = caption)
+}
+```
+
+## All time periods
+
+```{r echo=FALSE, results='asis', warning=FALSE}
+table4(rsq, quarterReg, "Time Trends for Diversification Indexes Across Three Asset Classes")
+```
+
+## Pre 2007
+
+```{r echo=FALSE, results='asis', warning=FALSE}
+table4(rsq[which(quartersList<as.Date("2007-01-01")),]*100, quarterReg[(quartersList<as.Date("2007-01-01"))], "Pre 2007")
+```
+
+## 2007-2012
+
+```{r echo=FALSE, results='asis', warning=FALSE}
+table4(rsq[intersect(which(quartersList>=as.Date("2007-01-01")),which(quartersList<as.Date("2013-01-01"))),]*100 ,
+       quarterReg[intersect(which(quartersList>=as.Date("2007-01-01")),which(quartersList<as.Date("2013-01-01")))],"2007-2012")
+```
+
+## Post 2012
+
+```{r echo=FALSE, results='asis', warning=FALSE}
+table4(rsq[which(quartersList>=as.Date("2013-01-01")),]*100, quarterReg[(quartersList>=as.Date("2013-01-01"))], "Post 2012")
+```
+
+# Figure 3
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.height=16, fig.width=14}
+par(mfrow=c(3,1))
+
+# using the table 1 to sepereate in different cohorts
+eq_countries = table1[,2]
+plot(quartersList, rowMeans(1 - rsq[, which(grepl(paste(paste0("eq_",unlist(strsplit(eq_countries[1], "\t"))), collapse="|"), countries))], na.rm = TRUE)*100, type="l", col = "blue", ylab="Equity", ylim=c(10,100), lwd=2) + 
+  lines(quartersList, rowMeans(1 - rsq[, which(grepl(paste(paste0("eq_",unlist(strsplit(eq_countries[2], "\t"))), collapse="|"), countries))], na.rm = TRUE)*100, col="red", lwd=2) + 
+  lines(quartersList, rowMeans(1 - rsq[, which(grepl(paste(paste0("eq_",unlist(strsplit(eq_countries[3], "\t"))), collapse="|"), countries))], na.rm = TRUE)*100, col="green", lwd=2) + 
+  lines(quartersList, rowMeans(1 - rsq[, which(grepl(paste(paste0("eq_",unlist(strsplit(eq_countries[4], "\t"))), collapse="|"), countries))], na.rm = TRUE)*100, col="purple", lwd=2)
+
+data.frame(quartersList, rowMeans(1 - rsq[, which(grepl(paste(paste0("eq_",unlist(strsplit(eq_countries[1], "\t"))), collapse="|"), countries))], na.rm = TRUE)*100, rowMeans(1 - rsq[, which(grepl(paste(paste0("eq_",unlist(strsplit(eq_countries[2], "\t"))), collapse="|"), countries))], na.rm = TRUE)*100, rowMeans(1 - rsq[, which(grepl(paste(paste0("eq_",unlist(strsplit(eq_countries[3], "\t"))), collapse="|"), countries))], na.rm = TRUE)*100, rowMeans(1 - rsq[, which(grepl(paste(paste0("eq_",unlist(strsplit(eq_countries[4], "\t"))), collapse="|"), countries))], na.rm = TRUE)*100)
+# legend("bottomleft")
+
+eq_countries = table2[,2]
+plot(quartersList, rowMeans(1 - rsq[, which(grepl(paste(paste0("bd_",unlist(strsplit(eq_countries[1], "\t"))), collapse="|"), countries))], na.rm = TRUE)*100, type="l", col = "red", ylab="Equity", ylim=c(10,100), lwd=2) + 
+  lines(quartersList, rowMeans(1 - rsq[, which(grepl(paste(paste0("bd_",unlist(strsplit(eq_countries[2], "\t"))), collapse="|"), countries))], na.rm = TRUE)*100, col="green", lwd=2) + 
+  lines(quartersList, rowMeans(1 - rsq[, which(grepl(paste(paste0("bd_",unlist(strsplit(eq_countries[3], "\t"))), collapse="|"), countries))], na.rm = TRUE)*100, col="purple", lwd=2)
+
+data.frame(quartersList, rowMeans(1 - rsq[, which(grepl(paste(paste0("bd_",unlist(strsplit(eq_countries[1], "\t"))), collapse="|"), countries))], na.rm = TRUE)*100, rowMeans(1 - rsq[, which(grepl(paste(paste0("bd_",unlist(strsplit(eq_countries[2], "\t"))), collapse="|"), countries))], na.rm = TRUE)*100, rowMeans(1 - rsq[, which(grepl(paste(paste0("bd_",unlist(strsplit(eq_countries[3], "\t"))), collapse="|"), countries))], na.rm = TRUE)*100)
+
+eq_countries = table3[,2]
+plot(quartersList, rowMeans(1 - rsq[, which(grepl(paste(paste0("rt_",unlist(strsplit(eq_countries[1], "\t"))), collapse="|"), countries))], na.rm = TRUE)*100, type="l", col = "red", ylab="Equity", ylim=c(10,100), lwd=2) + 
+  lines(quartersList, rowMeans(1 - rsq[, which(grepl(paste(paste0("rt_",unlist(strsplit(eq_countries[2], "\t"))), collapse="|"), countries))], na.rm = TRUE)*100, col="green", lwd=2)
+
+data.frame(quartersList, rowMeans(1 - rsq[, which(grepl(paste(paste0("rt_",unlist(strsplit(eq_countries[1], "\t"))), collapse="|"), countries))], na.rm = TRUE)*100, rowMeans(1 - rsq[, which(grepl(paste(paste0("rt_",unlist(strsplit(eq_countries[2], "\t"))), collapse="|"), countries))], na.rm = TRUE)*100)
+
+par(mfrow=c(1,1))
+rm(eq_countries)
+```
+
+# Table 7
+
+The FEDFUNDS are from fred and not datastream currently
+
+```{r echo=FALSE, message=FALSE}
+# interpolate and fill the missing values in the data
+interpolate = function(dat)
+{
+  cols = colnames(dat)
+  dat = data.frame(na.fill(zoo(dat), "extend"))
+  colnames(dat) = cols
+  dat
+}
+
+developed = unique(c("norway", "australia", "austria", "belgium", "canada", "denmark", "france", "germany", "hong.kong", "ireland", "italy", "japan", "netherlands", "singapore", "south.africa", "switzerland", "uk", "us",  "malaysia", "norway", "south.korea", "spain", "sweden", "chile", "hungary", "greece", "israel", "luxembourg", "poland", "slovakia", "turkey", "bulgaria", "cyprus", "czech.republic", "estonia", "kazakhstan", "kuwait", "latvia", "lithuania", "slovenia", "malta", "united.arab.emirates", "saudi.arabia", "portugal", "qatar", "bahrain", "croatia","oman", "argentina", "russia ", "montenegro","romania", "malaysia"))
+
+frontier = unique(c("argentina", "bahrain", "bangladesh", "botswana", "bulgaria", "cÃÂ´te.d.ivoire", "croatia", "cyprus", "ecuador", "estonia", "ghana", "jamaica", "jordan", "kazakhastan", "kenya", "latvia", "lebanon", "lithuania", "mauritius", "morocco", "namibia", "nigeria", "oman", "panama", "romania", "slovakia", "slovenia", "sri.lanka", "trinidad.and.tobago", "tunisia", "vietnam", "zambia"))
+
+dev_index = which(grepl(paste(developed, collapse="|"), countries))
+emerg_index = which(!grepl(paste(developed, collapse="|"), countries))
+front_index = which(grepl(paste(frontier, collapse="|"), countries))
+
+load_dev_factors = function()
+{
+  dev_factors = read.csv("data/World Bank/factors.csv")
+  
+  #converting to same name as for datastream
+  colnames(dev_factors)[1] = "Country.Name"
+  dev_factors[dev_factors == ".."] = NA
+  dev_factors$`Country.Name` = tolower(dev_factors$`Country.Name`)
+  dev_factors$`Country.Name` = str_replace_all(dev_factors$`Country.Name`," ",".")
+  dev_factors[dev_factors$`Country.Name` == "cote.d'ivoire",]$`Country.Name` = "cÃ´te.d.ivoire"
+  dev_factors[dev_factors$`Country.Name` == "egypt,.arab.rep.",]$`Country.Name` = "egypt"
+  dev_factors[dev_factors$`Country.Name` == "hong.kong.sar,.china",]$`Country.Name` = "hong.kong"
+  dev_factors[dev_factors$`Country.Name` == "korea,.rep.",]$`Country.Name` = "south.korea"
+  dev_factors[dev_factors$`Country.Name` == "north.macedonia",]$`Country.Name` = "macedonia"
+  dev_factors[dev_factors$`Country.Name` == "russian.federation",]$`Country.Name` = "russia"
+  dev_factors[dev_factors$`Country.Name` == "slovak.republic",]$`Country.Name` = "slovakia"
+  dev_factors[dev_factors$`Country.Name` == "united.states",]$`Country.Name` = "us"
+  dev_factors[dev_factors$`Country.Name` == "united.kingdom",]$`Country.Name` = "uk"
+  dev_factors[dev_factors$`Country.Name` == "venezuela,.rb",]$`Country.Name` = "venezuela"
+  
+  #convert colname to year
+  colnames(dev_factors)[3:length(colnames(dev_factors))] = as.numeric(unique(unlist(regmatches(colnames(dev_factors), gregexpr("[0-9]+", colnames(dev_factors))))))
+  
+  dev_factors = melt(dev_factors, id.vars = c("Country.Name","Series.Name"))
+  dev_factors$value = as.numeric(dev_factors$value)
+  dev_factors = dcast(dev_factors, `Country.Name`+variable~Series.Name, sum)
+  dev_factors = dev_factors[dev_factors$`Country.Name` != "",]
+  colnames(dev_factors)[2] = "year"
+  dev_factors$year = as.numeric(as.character.factor(dev_factors$year))
+  dev_factors = dev_factors[dev_factors$year>1985,]
+  dev_factors$year = as.Date(paste0(dev_factors$year, "-10-01"))
+  dev_countries = unique(dev_factors$Country.Name)
+  dev_factors = merge(dev_factors, as.data.frame(merge(quartersList, dev_countries, all=TRUE)), all = TRUE, by.x = c("year","Country.Name"), by.y=c("x","y"))
+  # dev_factors = dev_factors[dev_factors$year<2013,]
+  # dev_factors[is.na(dev_factors)] = 0
+  dev_factors$PC = 0
+  for(i in (1:length(dev_countries)))
+  {
+    temp = dev_factors[dev_factors$Country.Name == dev_countries[i],-c(1,2)]
+    temp = subset(temp, select = -c(PC))
+    col_NA <- apply(temp, 2, function(vec){sum(is.na(vec))})
+    temp <- temp[, col_NA <= 0.875*nrow(temp)]
+    temp = interpolate(temp)
+    dev_factors[dev_factors$Country.Name == dev_countries[i],]$PC = prcomp(temp)$x[,1]
+  }
+  dev_factors
+}
+
+dev_factors = load_dev_factors()
+
+#ted data
+ted = read.csv("data/TEDRATE.csv", stringsAsFactors = FALSE)
+colnames(ted)[1] = "year"
+ted$quarter = paste(year(ymd(ted$year)), quarter(ymd(ted$year)))
+ted$TED = as.numeric((ted$TED))
+ted = ted %>% group_by(quarter) %>% summarise(TED = mean(TED, na.rm=TRUE))
+ted$year = as.Date(as.yearqtr(ted$quarter, format = "%Y %q"))
+ted = subset(ted, select = -c(quarter))
+
+#vix data
+vix = read.csv("data/VIX.csv")
+colnames(vix)[1] = "year"
+vix = na.omit(vix)
+vix$year = as.Date(vix$year, format = "%m/%d/%Y")
+vix$quarter = paste(year(ymd(vix$year)), quarter(ymd(vix$year)))
+vix$VIX = as.numeric(as.character.factor(vix$VIX))
+vix = vix %>% group_by(quarter) %>% summarise(VIX = mean(VIX, na.rm=TRUE))
+vix$year = as.Date(as.yearqtr(vix$quarter, format = "%Y %q"))
+vix = subset(vix, select = -c(quarter))
+
+#sent data
+sent = read.csv("data/sent.csv", stringsAsFactors = FALSE)
+sent[sent$SENT == ".","SENT"] = NA
+colnames(sent)[1] = "year"
+sent = sent[sent$year > 198512,]
+sent$year = as.Date(paste0(as.character(sent$year),"01"), format = "%Y%m%d")
+sent$quarter = paste(year(ymd(sent$year)), quarter(ymd(sent$year)))
+sent$SENT = as.numeric(sent$SENT)
+sent = sent %>% group_by(quarter) %>% summarise(SENT = mean(SENT, na.rm=TRUE))
+sent$year = as.Date(as.yearqtr(sent$quarter, format = "%Y %q"))
+sent = subset(sent, select = -c(quarter))
+
+fed = read.csv("data/FEDFUNDS.csv")
+fed$year = as.Date(fed$DATE)
+# fed = fed[-1]
+fed$quarter = paste(year(ymd(fed$year)), quarter(ymd(fed$year)))
+fed = fed %>% group_by(quarter) %>% summarise(FEDFUNDS = mean(FEDFUNDS, na.rm=TRUE))
+fed$year = as.Date(as.yearqtr(fed$quarter, format = "%Y %q"))
+fed = subset(fed, select = -c(quarter))
+
+  
+#combined factors
+factors = read.csv("data/factors.csv")
+factors$year = as.Date(paste0(factors$year, "-10-01"))
+factors = merge(factors, as.data.frame(quartersList), all = TRUE, by.x = "year", by.y="quartersList")
+# factors = factors[as.numeric(substring(factors$year,1,4))<2013,]
+factors = subset(factors, select = -c(VIX, TED, SENT, FEDFUNDS))
+factors = merge(factors, vix, all.x=TRUE)
+factors = merge(factors, ted, all.x=TRUE)
+factors = merge(factors, sent, all.x =TRUE)
+factors = merge(factors, fed, all.x =TRUE)
+
+factors$INTERNET = (dev_factors %>% group_by(year) %>% summarise(INTERNET = mean(`Individuals using the Internet (% of population)`, na.rm = TRUE)))$INTERNET
+
+factors[,-c(1,3,4)] = interpolate(subset(factors, select = -c(year, ERM, EUROZONE)))
+
+#make last position as 0 for easy interpolation
+factors[length(factors$ERM), "ERM"] = 0
+factors[length(factors$ERM), "EUROZONE"] = 0
+factors = na.locf(factors, fromLast = TRUE)
+factors$COVID = 0
+factors$COVID[length(factors$COVID)] = 1
+
+NW = function(reg)
+{
+  a = summary(reg)
+  
+  a$coefficients = unclass(lmtest::coeftest(
+    reg,
+    vcov. = sandwich::NeweyWest(
+      reg,
+      lag = 1,
+      prewhite = FALSE,
+      adjust = TRUE
+    )
+  ))
+  
+  a
+}
+
+table7_func = function(rsq, caption)
+{
+  a = NW(lm((rowMeans(100 - rsq, na.rm = TRUE)) ~ ., data = factors[-1]))
+  all_ass = cbind(data.frame((a$coefficients[,1])), data.frame((a$coefficients[,4])))
+  colnames(all_ass) = c("X1","X2")
+  all_ass = rbind(all_ass, data.frame(cbind(a$adj.r.squared, NA)))
+  colnames(all_ass) = c("Coefficient","p-value")
+  all_ass = round(all_ass, 3)
+  
+  pander(all_ass, split.table = 100, style = 'rmarkdown', caption = caption)
+}
+
+table7_func(rsq, "All Assets")
+table7_func(rsq[,grep("^eq_", countries)], "All Equity")
+table7_func(rsq[,dev_index], "Developed Equity")
+table7_func(rsq[,emerg_index], "Emerging Equity")
+table7_func(rsq[,front_index], "Frontier Equity")
+table7_func(rsq[,grep("^bd_", countries)], "All Bond")
+table7_func(rsq[,grep("^rt_", countries)], "All REIT")
+
+common = intersect(substr(countries[grep("^rt_", countries)], 4, 1000000L), substr(countries[grep("^eq_", countries)], 4, 1000000L))
+common = intersect(common, substr(countries[grep("^bd_", countries)], 4, 1000000L))
+  
+for(i in (1:length(common)))
+{
+  print(table7_func(rsq[,grep(common[i], countries)], common[i]))
+}
+```
+
+# Table 8
+
+## Global Internet
+
+```{r echo=FALSE, warning=FALSE}
+factors$Var1 = seq(1,length(factors$year))
+
+colnames(rsq) = countries
+
+form_common <- Div ~ TED + VIX + SENT + FEDFUNDS + INTERNET + ERM + EUROZONE + COVID
+
+melt_div = function(grep_search)
+{
+  equity = rsq[,grep(grep_search, countries)]
+  equity = (1 - equity)*100
+  equity = melt(equity, value.name = "Div")
+  colnames(equity)[2] = "Country"
+  equity
+}
+
+construct_paneldata = function(grep_search)
+{
+  equity = merge(melt_div(grep_search), factors, on = "Var1", all=TRUE)
+  equity = subset(equity, select= -c(Var1))
+  equity$Country = as.character.factor(equity$Country)
+  equity
+}
+
+table8_func = function(grep_search, caption, fun)
+{
+  plm_fixed <- summary(plm(form_common, 
+                        data = fun(grep_search), 
+                        model = "within", 
+                      index = "Country"))
+  
+  display = as.data.frame(cbind(plm_fixed$coefficients[,1], plm_fixed$coefficients[,4]))
+  colnames(display) = c("Estimate", "P-Value")
+  display = rbind(display, c(plm_fixed$r.squared[2], NA))
+  rownames(display)[length(display[,1])] = "Adj. R sq"
+  display = rbind(display, c(nrow(plm_fixed$model), NA))
+  rownames(display)[length(display[,1])] = "N Obs."
+  
+  display = round(display, 3)
+  
+  pander(display, split.table = 100, style = 'rmarkdown', caption = caption)
+}
+
+table8_func("^eq_", "Equity", construct_paneldata)
+table8_func("^bd_", "Bond", construct_paneldata)
+table8_func("^rt_", "REIT", construct_paneldata)
+```
+
+## Local Internet
+
+```{r echo=FALSE, warning=FALSE}
+construct_country_data = function(grep_search)
+{
+  dev_fact = data.frame(dev_factors)
+  colnames(dev_fact) = colnames(dev_factors)
+  dev_fact$`Country.Name` = paste0(substring(grep_search,2), dev_fact$`Country.Name`)
+  equity = merge(construct_paneldata(grep_search), dev_fact, by.x = c("Country","year"), by.y = c("Country.Name","year"))
+  equity$INTERNET = equity$`Individuals using the Internet (% of population)`
+  equity = equity[,c("Country","Div",    "year", "TED",  "VIX",  "SENT", "FEDFUNDS","INTERNET","ERM",  "EUROZONE", "COVID")]
+  equity[,-c(1,2,3)] = interpolate(equity[,-c(1,2,3)])
+  equity
+}
+
+table8_func("^eq_", "Equity", construct_country_data)
+table8_func("^bd_", "Bond", construct_country_data)
+table8_func("^rt_", "REIT", construct_country_data)
+```
+
+## DEVPC1
+Internet is the DEVPC1 factor
+The column is dropped for the country if we have more than 50% missing values
+The missing values are filled by using interpolation
+
+```{r echo=FALSE, warning=FALSE}
+construct_devpc1 = function(grep_search)
+{
+  dev_fact = data.frame(dev_factors)
+  colnames(dev_fact) = colnames(dev_factors)
+  dev_fact$`Country.Name` = paste0(substring(grep_search,2), dev_fact$`Country.Name`)
+  # dev_factors$PC = prcomp(dev_factors[,-c(1,2,3)])$x[,1]
+  equity = merge(construct_paneldata(grep_search), dev_fact, by.x = c("Country","year"), by.y = c("Country.Name","year"))
+  equity$INTERNET = equity$PC
+  equity[,c("Country","Div", "year", "TED",  "VIX",  "SENT", "FEDFUNDS","INTERNET","ERM",  "EUROZONE", "COVID")]
+}
+
+table8_func("^eq_", "Equity", construct_devpc1)
+table8_func("^bd_", "Bond", construct_devpc1)
+table8_func("^rt_", "REIT", construct_devpc1)
+```
+
+# Table 9
+
+```{r echo=FALSE, warning=FALSE}
+get_icrg_data = function(path)
+{
+  economic = read.csv(path)
+  economic[,1] = tolower(economic[,1])
+  economic[,c(1,2, length(economic))]
+}
+
+economic = get_icrg_data("data/5BDataset2019.csv")
+financial = get_icrg_data("data/4BDataset2019.csv")
+political = get_icrg_data("data/3BResearchersDataset2019.csv")
+liquidity = read.csv("data/stock illiquidity.csv")
+liquidity = liquidity[,c(1,2,3)]
+liquidity[,1] = tolower(liquidity[,1])
+colnames(liquidity) = c("Country","Year","liquidity")
+liquidity = na.omit(liquidity)
+institution = read.csv("data/country_ownership.csv")
+colnames(institution) = c("Country","Year","insti_loan")
+institution$Country = tolower(institution$Country)
+# institution$Year = format(institution)
+
+
+construct_table9_data = function(grep_search)
+{
+  icrg = merge(economic, financial, all=TRUE)
+  icrg = merge(icrg, political, all=TRUE)
+  icrg = merge(icrg, liquidity, all=TRUE)
+  icrg = merge(icrg, institution, all=TRUE)
+  icrg$Country = paste0(substring(grep_search,2), icrg$Country)
+  icrg$Year = as.Date(paste0(icrg$Year, "-10-01"))
+  equity = merge(construct_paneldata(grep_search), icrg, by.x = c("Country","year"), by.y = c("Country","Year"), all.x = TRUE)
+  
+  dev_fact = data.frame(dev_factors)
+  colnames(dev_fact) = colnames(dev_factors)
+  dev_fact$`Country.Name` = paste0(substring(grep_search,2), dev_fact$`Country.Name`)
+  # dev_factors$PC = prcomp(dev_factors[,-c(1,2,3)])$x[,1]
+  equity = merge(equity, dev_fact, by.x = c("Country","year"), by.y = c("Country.Name","year"))
+  
+  equity[,-c(1,2,3)] = interpolate(subset(equity, select = -c(1,2,3)))
+  
+  equity[,c("Country","Div", "year", "TED",  "VIX",  "SENT", "FEDFUNDS","INTERNET","ERM",  "EUROZONE", "COVID", "Aggregate.Economic.Risk", "Aggregate.Financial.Risk", "Aggregate.Poliitical.Risk","liquidity", "PC","insti_loan" )]
+}
+```
+
+## No INTERNET
+
+```{r echo=FALSE, warning=FALSE}
+form_common <- Div ~ TED + VIX + SENT + FEDFUNDS + ERM + EUROZONE + COVID + Aggregate.Economic.Risk + Aggregate.Financial.Risk + Aggregate.Poliitical.Risk + liquidity + insti_loan
+table8_func("^eq_", "Equity", construct_table9_data)
+table8_func("^bd_", "Bond", construct_table9_data)
+table8_func("^rt_", "REIT", construct_table9_data)
+```
+
+## Internet
+
+```{r echo=FALSE, warning=FALSE}
+form_common <- Div ~ TED + VIX + SENT + FEDFUNDS + INTERNET + ERM + EUROZONE + COVID + Aggregate.Economic.Risk + Aggregate.Financial.Risk + Aggregate.Poliitical.Risk + liquidity + insti_loan
+table8_func("^eq_", "Equity", construct_table9_data)
+table8_func("^bd_", "Bond", construct_table9_data)
+table8_func("^rt_", "REIT", construct_table9_data)
+```
+
+## PC1
+
+```{r echo=FALSE, warning=FALSE}
+form_common <- Div ~ TED + VIX + SENT + FEDFUNDS + PC + ERM + EUROZONE + COVID + Aggregate.Economic.Risk + Aggregate.Financial.Risk + Aggregate.Poliitical.Risk + liquidity + insti_loan
+table8_func("^eq_", "Equity", construct_table9_data)
+table8_func("^bd_", "Bond", construct_table9_data)
+table8_func("^rt_", "REIT", construct_table9_data)
+```
+
+# Table 10
+
+## Geographical Cohorts
+
+```{r echo=FALSE, warning=FALSE}
+form_common <- Div ~ TED + VIX + SENT + FEDFUNDS + INTERNET + ERM + EUROZONE + COVID + Aggregate.Economic.Risk + Aggregate.Financial.Risk + Aggregate.Poliitical.Risk + liquidity + insti_loan
+
+construct_table10_data = function(series, caption)
+{
+  icrg = merge(economic, financial, all=TRUE)
+  icrg = merge(icrg, political, all=TRUE)
+  icrg = merge(icrg, liquidity, all=TRUE)
+  icrg = merge(icrg, institution, all=TRUE)
+  icrg$Country = paste0("eq_", icrg$Country)
+  icrg$Year = as.Date(paste0(icrg$Year, "-10-01"))
+  equity = merge(construct_paneldata("^eq_"), icrg, by.x = c("Country","year"), by.y = c("Country","Year"), all.x = TRUE)
+  equity[,-c(1,2,3)] = interpolate(subset(equity, select = -c(1,2,3)))
+  
+  plm_fixed <- summary(plm::plm(form_common, 
+                        data = equity[which(grepl(paste(series, collapse="|"), equity$Country)),], 
+                        model = "within", 
+                      index = "Country"))
+  
+  display = as.data.frame(cbind(plm_fixed$coefficients[,1], plm_fixed$coefficients[,4]))
+  colnames(display) = c("Estimate", "P-Value")
+  display = rbind(display, c(plm_fixed$r.squared[2], NA))
+  rownames(display)[length(display[,1])] = "Adj. R sq"
+  display = rbind(display, c(nrow(plm_fixed$model), NA))
+  rownames(display)[length(display[,1])] = "N Obs."
+  
+  display = round(display, 3)
+  
+  pander(display, split.table = 100, style = 'rmarkdown', caption = caption)
+  
+}
+
+construct_table10_data(developed, "Developed Equity")
+construct_table10_data(countries[which(!grepl(paste(developed, collapse="|"), countries))], "Emerging Equity")
+construct_table10_data(frontier, "Frontier Equity")
+```
+
+## Time based cohorts
+
+### Pre 2007
+
+```{r echo=FALSE, warning=FALSE}
+form_common <- Div ~ TED + VIX + SENT + FEDFUNDS + INTERNET + ERM + Aggregate.Economic.Risk + Aggregate.Financial.Risk + Aggregate.Poliitical.Risk + liquidity + insti_loan
+construct_table10_data = function(grep_search, caption)
+{
+  icrg = merge(economic, financial, all=TRUE)
+  icrg = merge(icrg, political, all=TRUE)
+  icrg = merge(icrg, liquidity, all=TRUE)
+  icrg = merge(icrg, institution, all=TRUE)
+  icrg$Country = paste0(substring(grep_search,2), icrg$Country)
+  icrg$Year = as.Date(paste0(icrg$Year, "-10-01"))
+  equity = merge(construct_paneldata(grep_search), icrg, by.x = c("Country","year"), by.y = c("Country","Year"), all.x = TRUE)
+  equity[,-c(1,2,3)] = interpolate(subset(equity, select = -c(1,2,3)))
+  
+  plm_fixed <- summary(plm(form_common, 
+                        data = equity[equity$year<as.Date("2007-01-01"),], 
+                        model = "within", 
+                      index = "Country"))
+  
+  display = as.data.frame(cbind(plm_fixed$coefficients[,1], plm_fixed$coefficients[,4]))
+  colnames(display) = c("Estimate", "P-Value")
+  display = rbind(display, c(plm_fixed$r.squared[2], NA))
+  rownames(display)[length(display[,1])] = "Adj. R sq"
+  display = rbind(display, c(nrow(plm_fixed$model), NA))
+  rownames(display)[length(display[,1])] = "N Obs."
+  
+  display = round(display, 3)
+  
+  pander(display, split.table = 100, style = 'rmarkdown', caption = caption)
+}
+
+construct_table10_data("^eq_", "Equity")
+construct_table10_data("^bd_", "Bond")
+construct_table10_data("^rt_", "REIT")
+```
+
+### 2007-2012
+
+```{r echo=FALSE, warning=FALSE}
+form_common <- Div ~ TED + VIX + SENT + FEDFUNDS + INTERNET + ERM + Aggregate.Economic.Risk + Aggregate.Financial.Risk + Aggregate.Poliitical.Risk + liquidity + insti_loan
+construct_table10_data = function(grep_search, caption)
+{
+  icrg = merge(economic, financial, all=TRUE)
+  icrg = merge(icrg, political, all=TRUE)
+  icrg = merge(icrg, liquidity, all=TRUE)
+  icrg = merge(icrg, institution, all=TRUE)
+  icrg$Country = paste0(substring(grep_search,2), icrg$Country)
+  icrg$Year = as.Date(paste0(icrg$Year, "-10-01"))
+  equity = merge(construct_paneldata(grep_search), icrg, by.x = c("Country","year"), by.y = c("Country","Year"), all.x = TRUE)
+  equity[,-c(1,2,3)] = interpolate(subset(equity, select = -c(1,2,3)))
+  
+  plm_fixed <- summary(plm(form_common, 
+                        data = equity[equity$year>=as.Date("2007-01-01") & equity$year<as.Date("2013-01-01"),], 
+                        model = "within", 
+                      index = "Country"))
+  
+  display = as.data.frame(cbind(plm_fixed$coefficients[,1], plm_fixed$coefficients[,4]))
+  colnames(display) = c("Estimate", "P-Value")
+  display = rbind(display, c(plm_fixed$r.squared[2], NA))
+  rownames(display)[length(display[,1])] = "Adj. R sq"
+  display = rbind(display, c(nrow(plm_fixed$model), NA))
+  rownames(display)[length(display[,1])] = "N Obs."
+  
+  display = round(display, 3)
+  
+  pander(display, split.table = 100, style = 'rmarkdown', caption = caption)
+}
+
+construct_table10_data("^eq_", "Equity")
+construct_table10_data("^bd_", "Bond")
+construct_table10_data("^rt_", "REIT")
+```
+
+### Post 2012
+
+```{r echo=FALSE, warning=FALSE}
+form_common <- Div ~ TED + VIX + SENT + FEDFUNDS + INTERNET + ERM + Aggregate.Economic.Risk + Aggregate.Financial.Risk + Aggregate.Poliitical.Risk + liquidity + EUROZONE + COVID + insti_loan
+
+construct_table10_data = function(grep_search, caption)
+{
+  icrg = merge(economic, financial, all=TRUE)
+  icrg = merge(icrg, political, all=TRUE)
+  icrg = merge(icrg, liquidity, all=TRUE)
+  icrg = merge(icrg, institution, all=TRUE)
+  icrg$Country = paste0(substring(grep_search,2), icrg$Country)
+  icrg$Year = as.Date(paste0(icrg$Year, "-10-01"))
+  equity = merge(construct_paneldata(grep_search), icrg, by.x = c("Country","year"), by.y = c("Country","Year"), all.x = TRUE)
+  equity[,-c(1,2,3)] = interpolate(subset(equity, select = -c(1,2,3)))
+  
+  plm_fixed <- summary(plm(form_common, 
+                        data = equity[equity$year>=as.Date("2013-01-01"),], 
+                        model = "within", 
+                      index = "Country"))
+  
+  display = as.data.frame(cbind(plm_fixed$coefficients[,1], plm_fixed$coefficients[,4]))
+  colnames(display) = c("Estimate", "P-Value")
+  display = rbind(display, c(plm_fixed$r.squared[2], NA))
+  rownames(display)[length(display[,1])] = "Adj. R sq"
+  display = rbind(display, c(nrow(plm_fixed$model), NA))
+  rownames(display)[length(display[,1])] = "N Obs."
+  
+  display = round(display, 3)
+  
+  pander(display, split.table = 100, style = 'rmarkdown', caption = caption)
+}
+
+construct_table10_data("^eq_", "Equity")
+construct_table10_data("^bd_", "Bond")
+construct_table10_data("^rt_", "REIT")
+```
+
+# Appendix Table 5
+
+## Geographical Cohorts
+
+```{r echo=FALSE, warning=FALSE}
+construct_table10_data = function(series, caption)
+{
+  icrg = merge(economic, financial, all=TRUE)
+  icrg = merge(icrg, political, all=TRUE)
+  icrg = merge(icrg, liquidity, all=TRUE)
+  icrg = merge(icrg, institution, all=TRUE)
+  icrg$Country = paste0("eq_", icrg$Country)
+  icrg$Year = as.Date(paste0(icrg$Year, "-10-01"))
+  equity = merge(construct_paneldata("^eq_"), icrg, by.x = c("Country","year"), by.y = c("Country","Year"), all.x=TRUE)
+  dev_fact = data.frame(dev_factors)
+  colnames(dev_fact) = colnames(dev_factors)
+  dev_fact$`Country.Name` = paste0("eq_", dev_fact$`Country.Name`)
+  # dev_factors$PC = prcomp(dev_factors[,-c(1,2,3)])$x[,1]
+  equity = merge(equity, dev_fact, by.x = c("Country","year"), by.y = c("Country.Name","year"))
+  equity[,-c(1,2,3)] = interpolate(subset(equity, select = -c(1,2,3)))
+  
+  plm_fixed <- summary(plm::plm(form_common, 
+                        data = equity[which(grepl(paste(series, collapse="|"), equity$Country)),], 
+                        model = "within", 
+                      index = "Country"))
+  
+  display = as.data.frame(cbind(plm_fixed$coefficients[,1], plm_fixed$coefficients[,4]))
+  colnames(display) = c("Estimate", "P-Value")
+  display = rbind(display, c(plm_fixed$r.squared[2], NA))
+  rownames(display)[length(display[,1])] = "Adj. R sq"
+  display = rbind(display, c(nrow(plm_fixed$model), NA))
+  rownames(display)[length(display[,1])] = "N Obs."
+  
+  display = round(display, 3)
+  
+  pander(display, split.table = 100, style = 'rmarkdown', caption = caption)
+}
+
+form_common <- Div ~ TED + VIX + SENT + FEDFUNDS + PC + ERM + EUROZONE + COVID + Aggregate.Economic.Risk + Aggregate.Financial.Risk + Aggregate.Poliitical.Risk + liquidity + insti_loan
+
+construct_table10_data(developed, "Developed Equity")
+construct_table10_data(countries[which(!grepl(paste(developed, collapse="|"), countries))], "Emerging Equity")
+construct_table10_data(frontier, "Frontier Equity")
+```
+
+## Time based cohorts
+
+### Pre 20077
+
+```{r echo=FALSE, warning=FALSE}
+form_common <- Div ~ TED + VIX + SENT + FEDFUNDS + PC + ERM + Aggregate.Economic.Risk + Aggregate.Financial.Risk + Aggregate.Poliitical.Risk + liquidity + insti_loan
+construct_table10_data = function(grep_search, caption)
+{
+  icrg = merge(economic, financial, all=TRUE)
+  icrg = merge(icrg, political, all=TRUE)
+  icrg = merge(icrg, liquidity, all=TRUE)
+  icrg = merge(icrg, institution, all=TRUE)
+  icrg$Country = paste0(substring(grep_search,2), icrg$Country)
+  icrg$Year = as.Date(paste0(icrg$Year, "-10-01"))
+  equity = merge(construct_paneldata(grep_search), icrg, by.x = c("Country","year"), by.y = c("Country","Year"), all.x=TRUE)
+  dev_fact = data.frame(dev_factors)
+  colnames(dev_fact) = colnames(dev_factors)
+  dev_fact$`Country.Name` = paste0(substring(grep_search,2), dev_fact$`Country.Name`)
+  # dev_factors$PC = prcomp(dev_factors[,-c(1,2,3)])$x[,1]
+  equity = merge(equity, dev_fact, by.x = c("Country","year"), by.y = c("Country.Name","year"))
+  equity[,-c(1,2,3)] = interpolate(subset(equity, select = -c(1,2,3)))
+  
+  plm_fixed <- summary(plm(form_common, 
+                        data = equity[equity$year<as.Date("2007-01-01"),], 
+                        model = "within", 
+                      index = "Country"))
+  
+  display = as.data.frame(cbind(plm_fixed$coefficients[,1], plm_fixed$coefficients[,4]))
+  colnames(display) = c("Estimate", "P-Value")
+  display = rbind(display, c(plm_fixed$r.squared[2], NA))
+  rownames(display)[length(display[,1])] = "Adj. R sq"
+  display = rbind(display, c(nrow(plm_fixed$model), NA))
+  rownames(display)[length(display[,1])] = "N Obs."
+  
+  display = round(display, 3)
+  
+  pander(display, split.table = 100, style = 'rmarkdown', caption = caption)
+}
+
+construct_table10_data("^eq_", "Equity")
+construct_table10_data("^bd_", "Bond")
+construct_table10_data("^rt_", "REIT")
+```
+
+### 2007 - 2012
+
+```{r echo=FALSE, warning=FALSE}
+form_common <- Div ~ TED + VIX + SENT + FEDFUNDS + PC + ERM + Aggregate.Economic.Risk + Aggregate.Financial.Risk + Aggregate.Poliitical.Risk + liquidity + insti_loan
+construct_table10_data = function(grep_search, caption)
+{
+  icrg = merge(economic, financial, all=TRUE)
+  icrg = merge(icrg, political, all=TRUE)
+  icrg = merge(icrg, liquidity, all=TRUE)
+  icrg = merge(icrg, institution, all=TRUE)
+  icrg$Country = paste0(substring(grep_search,2), icrg$Country)
+  icrg$Year = as.Date(paste0(icrg$Year, "-10-01"))
+  equity = merge(construct_paneldata(grep_search), icrg, by.x = c("Country","year"), by.y = c("Country","Year"), all.x=TRUE)
+  dev_fact = data.frame(dev_factors)
+  colnames(dev_fact) = colnames(dev_factors)
+  dev_fact$`Country.Name` = paste0(substring(grep_search,2), dev_fact$`Country.Name`)
+  # dev_factors$PC = prcomp(dev_factors[,-c(1,2,3)])$x[,1]
+  equity = merge(equity, dev_fact, by.x = c("Country","year"), by.y = c("Country.Name","year"))
+  equity[,-c(1,2,3)] = interpolate(subset(equity, select = -c(1,2,3)))
+  
+  plm_fixed <- summary(plm(form_common, 
+                        data = equity[equity$year>=as.Date("2007-01-01") & equity$year<as.Date("2013-01-01"),], 
+                        model = "within", 
+                      index = "Country"))
+  
+  display = as.data.frame(cbind(plm_fixed$coefficients[,1], plm_fixed$coefficients[,4]))
+  colnames(display) = c("Estimate", "P-Value")
+  display = rbind(display, c(plm_fixed$r.squared[2], NA))
+  rownames(display)[length(display[,1])] = "Adj. R sq"
+  display = rbind(display, c(nrow(plm_fixed$model), NA))
+  rownames(display)[length(display[,1])] = "N Obs."
+  
+  display = round(display, 3)
+  
+  pander(display, split.table = 100, style = 'rmarkdown', caption = caption)
+}
+
+construct_table10_data("^eq_", "Equity")
+construct_table10_data("^bd_", "Bond")
+construct_table10_data("^rt_", "REIT")
+```
+
+### Post 2012
+
+```{r echo=FALSE, warning=FALSE}
+form_common <- Div ~ TED + VIX + SENT + FEDFUNDS + PC + ERM + Aggregate.Economic.Risk + Aggregate.Financial.Risk + Aggregate.Poliitical.Risk + liquidity + insti_loan + EUROZONE + COVID
+
+construct_table10_data = function(condition,grep_search, caption)
+{
+  icrg = merge(economic, financial, all=TRUE)
+  icrg = merge(icrg, political, all=TRUE)
+  icrg = merge(icrg, liquidity, all=TRUE)
+  icrg = merge(icrg, institution, all=TRUE)
+  icrg$Country = paste0(substring(grep_search,2), icrg$Country)
+  icrg$Year = as.Date(paste0(icrg$Year, "-10-01"))
+  equity = merge(construct_paneldata(grep_search), icrg, by.x = c("Country","year"), by.y = c("Country","Year"), all.x=TRUE)
+    dev_fact = data.frame(dev_factors)
+  colnames(dev_fact) = colnames(dev_factors)
+  dev_fact$`Country.Name` = paste0(substring(grep_search,2), dev_fact$`Country.Name`)
+  # dev_factors$PC = prcomp(dev_factors[,-c(1,2,3)])$x[,1]
+  equity = merge(equity, dev_fact, by.x = c("Country","year"), by.y = c("Country.Name","year"))
+  equity[,-c(1,2,3)] = interpolate(subset(equity, select = -c(1,2,3)))
+  
+  plm_fixed <- summary(plm(form_common, 
+                        data = equity[equity$year>=as.Date("2013-01-01"),], 
+                        model = "within", 
+                      index = "Country"))
+  
+  display = as.data.frame(cbind(plm_fixed$coefficients[,1], plm_fixed$coefficients[,4]))
+  colnames(display) = c("Estimate", "P-Value")
+  display = rbind(display, c(plm_fixed$r.squared[2], NA))
+  rownames(display)[length(display[,1])] = "Adj. R sq"
+  display = rbind(display, c(nrow(plm_fixed$model), NA))
+  rownames(display)[length(display[,1])] = "N Obs."
+  
+  display = round(display, 3)
+  
+  pander(display, split.table = 100, style = 'rmarkdown', caption = caption)
+}
+
+construct_table10_data("","^eq_", "Equity")
+construct_table10_data("equity$year>=2000","^bd_", "Bond")
+construct_table10_data(equity$year>=2000,"^rt_", "REIT")
+```
+
+# Table 6
+
+## Excluding countries from picture
+
+```{r echo=FALSE, warning=FALSE}
+cor(factors[-1])
+```
+
+## With countries
+
+Var1 is PC
+
+```{r echo=FALSE, warning=FALSE}
+cor(subset(construct_table9_data("^eq_"), select = c(TED, VIX, SENT, FEDFUNDS, INTERNET, ERM, EUROZONE, COVID,liquidity, PC)))
+```
+
+# Appendix Table 1
+
+taking the mean of asset diversification
+
+## Contemporaneous
+
+```{r echo=FALSE, warning=FALSE}
+eq = (rowMeans(1 - rsq[,grep("^eq_", countries)], na.rm = TRUE))*100
+bd = (rowMeans(1 - rsq[,grep("^bd_", countries)], na.rm = TRUE))*100
+rt = (rowMeans(1 - rsq[,grep("^rt_", countries)], na.rm = TRUE))*100
+
+div_comb = cbind(eq, bd)
+div_comb = cbind(div_comb, rt)
+cor(div_comb)
+```
+
+## Lead Equity
+
+```{r echo=FALSE, warning=FALSE}
+div_comb = cbind(shift(eq, -1), bd)
+div_comb = cbind(div_comb, rt)
+cor(div_comb, use="complete.obs")
+```
+
+## Lead Bond
+
+```{r echo=FALSE, warning=FALSE}
+div_comb = cbind(eq, shift(bd, -1))
+div_comb = cbind(div_comb, rt)
+cor(div_comb, use="complete.obs")
+```
+
+## Lead REIT
+
+```{r echo=FALSE, warning=FALSE}
+div_comb = cbind(eq, bd)
+div_comb = cbind(div_comb, shift(rt, -1))
+cor(div_comb, use="complete.obs")
+```
+
+# Appendix Figure 4
+
+```{r echo=FALSE, warning=FALSE, fig.cap="Appendix Fig 4", fig.height=16, fig.width=14, message=FALSE}
+get_quaterly_ret = function(equity)
+{
+  equity = equity[equity$Date >= as.Date("1986-01-01"),]
+  equity$year = paste(year(ymd(equity$Date)), quarter(ymd(equity$Date)))
+  
+  equity[is.na(equity)] = 0
+  
+  equity = aggregate(x = subset(equity, select = -c(Date, year)) ,                
+          by = list(equity$year),              
+          FUN = sum)
+  equity[equity == 0] = NA
+  
+  equity[-1] = (exp(equity[-1]) - 1)*100
+}
+
+equity = get_quaterly_ret(initialize_data("data/Equity.csv"))
+bond = get_quaterly_ret(initialize_data("data/Bond.csv"))
+reit = get_quaterly_ret(initialize_data("data/REIT.csv"))
+
+equity_median = apply(equity, 1, median,na.rm=TRUE)
+bond_median = apply(bond, 1, median,na.rm=TRUE)
+reit_median = apply(reit, 1, median,na.rm=TRUE)
+# years = unique(equity$)
+equity_bearbull = vector(length = length(equity$argentina))
+bond_bearbull = vector(length = length(bond$australia))
+reit_bearbull = vector(length = length(reit$australia))
+
+# rsq[is.na(rsq)] = 0
+for(i in (1:length(equity$argentina)))
+{
+  getBearBull = function(grep_search, i, equity, equity_median)
+  {
+    bull_equity = paste0(substring(grep_search, 2),colnames(equity)[which(equity[i,] > equity_median[i])])
+    bull_div = as.data.frame(as.data.frame(rsq[,intersect(grep(grep_search, countries), which(grepl(paste(bull_equity, collapse="|"), colnames(rsq))))])[i,])
+    bear_div = as.data.frame(as.data.frame(rsq[,intersect(grep(grep_search, countries), which(!grepl(paste(bull_equity, collapse="|"), colnames(rsq))))])[i,])
+    bull_div = (1 - bull_div)*100
+    bear_div = (1 - bear_div)*100
+    
+    mean_check = function(series)
+    {
+      result = rowMeans(series, na.rm = TRUE)
+      if(is.na(result))
+      {
+        return(0)
+      }
+      else
+      {
+        return(result)
+      }
+    }
+    
+    return(mean_check(bull_div) - mean_check(bear_div))
+  }
+  # rsq[, which(grepl(paste(bull_equity, collapse="|"), colnames(rsq)))]
+  equity_bearbull[i] = getBearBull("^eq_", i, equity, equity_median)
+  bond_bearbull[i] = getBearBull("^bd_", i, bond, bond_median)
+  reit_bearbull[i] = getBearBull("^rt_", i, reit, reit_median)
+}
+# rsq[rsq == 0] = NA
+par(mfrow = c(3,1))
+plot(quartersList, equity_bearbull, type = "l", col = "blue", xlab = "Date", ylab = "Equity", lwd = 2) + abline(h=0)
+par(new = TRUE)
+plot(quartersList, equity_median, col="red", xlab = "", ylab = "", type="l", axes = FALSE, lwd=2)
+axis(side = 4, at = pretty(c(-80,40)))
+mtext("Return", side = 4, line = 3)
+
+write.csv(data.frame(quartersList, equity_bearbull, equity_median), "temp.csv")
+
+plot(quartersList, bond_bearbull, type = "l", col = "blue", xlab = "Date", ylab = "Bond", lwd = 2) + abline(h=0)
+par(new = TRUE)
+plot(quartersList, bond_median, col="red", xlab = "", ylab = "", type="l", axes = FALSE, lwd=2)
+axis(side = 4, at = pretty(c(-20,20)))
+mtext("Return", side = 4, line = 3)
+
+write.csv(data.frame(quartersList, bond_bearbull, bond_median), "temp.csv")
+
+plot(quartersList, reit_bearbull, type = "l", col = "blue", xlab = "Date", ylab = "REIT", lwd = 2) + abline(h=0)
+par(new = TRUE)
+plot(quartersList, reit_median, col="red", xlab = "", ylab = "", type="l", axes = FALSE, lwd=2)
+axis(side = 4, at = pretty(c(-60,40)))
+mtext("Return", side = 4, line = 3)
+
+write.csv(data.frame(quartersList, reit_bearbull, reit_median), "temp.csv")
+
+par(mfrow = c(1,1))
+```
+
+# Appendix Table 2
+
+## Between the diversifications
+
+```{r echo=FALSE, warning=FALSE}
+div_comb = cbind(equity_bearbull, bond_bearbull)
+div_comb = cbind(div_comb, reit_bearbull)
+round(cor(div_comb), 3)
+```
+
+## With return
+
+### Equity
+
+```{r echo=FALSE, warning=FALSE}
+round(cor(equity_bearbull, equity_median), 3)
+```
+
+### Bond
+
+```{r echo=FALSE, warning=FALSE}
+round(cor(bond_bearbull, bond_median), 3)
+```
+
+### REIT
+
+```{r echo=FALSE, warning=FALSE}
+round(cor(reit_bearbull, reit_median), 3)
+```
+
+## pre 2007
+
+### Equity
+
+```{r echo=FALSE, warning=FALSE}
+round(cor(equity_bearbull[1:84], equity_median[1:84]), 3)
+```
+
+### Bond
+
+```{r echo=FALSE, warning=FALSE}
+round(cor(bond_bearbull[1:84], bond_median[1:84]), 3)
+```
+
+### REIT
+
+```{r echo=FALSE, warning=FALSE}
+round(cor(reit_bearbull[1:84], reit_median[1:84]), 3)
+```
+
+## 2007-2012
+
+### Equity
+
+```{r echo=FALSE, warning=FALSE}
+round(cor(equity_bearbull[85:108], equity_median[85:108]), 3)
+```
+
+### Bond
+
+```{r echo=FALSE, warning=FALSE}
+round(cor(bond_bearbull[85:108], bond_median[85:108]), 3)
+```
+
+### REIT
+
+```{r echo=FALSE, warning=FALSE}
+round(cor(reit_bearbull[85:108], reit_median[85:108]), 3)
+```
+
+post 2012
+
+### Equity
+
+```{r echo=FALSE, warning=FALSE}
+round(cor(equity_bearbull[109:138], equity_median[109:138]), 3)
+```
+
+### Bond
+
+```{r echo=FALSE, warning=FALSE}
+round(cor(bond_bearbull[109:138], bond_median[109:138]), 3)
+```
+
+### REIT
+
+```{r echo=FALSE, warning=FALSE}
+round(cor(reit_bearbull[109:138], reit_median[109:138]), 3)
+```
+
+
+# Appendix Table 3
+
+## Values
+
+```{r echo=FALSE, warning=FALSE}
+print(paste("Equity", round(mean(equity_bearbull), 3)))
+print(paste("Bond", round(mean(bond_bearbull), 3)))
+print(paste("REIT", round(mean(reit_bearbull), 3)))
+```
+
+## t-stat
+
+```{r echo=FALSE, warning=FALSE}
+print(paste("Equity", (mean(equity_bearbull)/(sd(equity_bearbull)/sqrt(length(equity_bearbull))))))
+print(paste("Bond", (mean(bond_bearbull)/(sd(bond_bearbull)/sqrt(length(bond_bearbull))))))
+print(paste("REIT",(mean(reit_bearbull)/(sd(reit_bearbull)/sqrt(length(reit_bearbull))))))
+```
+
+# Appendix Table 4
+
+only time periods shared by all individuals are left in the result
+
+## Global Internet
+
+```{r echo=FALSE, warning=FALSE}
+form_common <- Div ~ TED + VIX + SENT + FEDFUNDS + INTERNET + ERM + EUROZONE + COVID
+
+table8_func = function(grep_search, caption, fun)
+{
+  temp = fun(grep_search)
+  # temp = temp[temp$Country %in% paste0(substring(grep_search, 2), common),]
+  # temp[,1] = as.factor(temp[,1])
+  temp = pdata.frame(temp, index=c("Country","year"))
+  # temp = na.omit(temp)
+  plm_fixed <- summary(plm::plm(form_common, 
+                        data = make.pbalanced(temp, "shared.times"), 
+                        model = "within", 
+                      index = "Country"))
+  
+  display = as.data.frame(cbind(plm_fixed$coefficients[,1], plm_fixed$coefficients[,4]))
+  colnames(display) = c("Estimate", "P-Value")
+  display = rbind(display, c(plm_fixed$r.squared[2], NA))
+  rownames(display)[length(display[,1])] = "Adj. R sq"
+  display = rbind(display, c(nrow(plm_fixed$model), NA))
+  rownames(display)[length(display[,1])] = "N Obs."
+  
+  display = round(display, 3)
+  
+  pander(display, split.table = 100, style = 'rmarkdown', caption = caption)
+}
+
+table8_func("^eq_", "Equity", construct_paneldata)
+table8_func("^bd_", "Bond", construct_paneldata)
+table8_func("^rt_", "REIT", construct_paneldata)
+```
+
+## Local Internet
+
+```{r echo=FALSE, warning=FALSE}
+table8_func("^eq_", "Equity", construct_country_data)
+table8_func("^bd_", "Bond", construct_country_data)
+table8_func("^rt_", "REIT", construct_country_data)
+```
+
+## DEVPC1
+Internet is the DEVPC1 factor
+
+```{r echo=FALSE, warning=FALSE}
+table8_func("^eq_", "Equity", construct_devpc1)
+table8_func("^bd_", "Bond", construct_devpc1)
+table8_func("^rt_", "REIT", construct_devpc1)
+```
+
+# Pending
+
+* Table 7 formatting
