@@ -1127,11 +1127,24 @@ get_icrg_data = function(path)
 economic = get_icrg_data("data/5BDataset2019.csv")
 financial = get_icrg_data("data/4BDataset2019.csv")
 political = get_icrg_data("data/3BResearchersDataset2019.csv")
-liquidity = read.csv("data/stock illiquidity.csv")
+
+liquidity_process = function(path)
+{
+  
+liquidity = read.csv(path)
 liquidity = liquidity[,c(1,2,3)]
 liquidity[,1] = tolower(liquidity[,1])
 colnames(liquidity) = c("Country","Year","liquidity")
 liquidity = na.omit(liquidity)
+return(liquidity)
+}
+
+liquidity = liquidity_process("data/stock illiquidity.csv")
+liquidity_rt = liquidity_process("data/reit illiquidity.csv")
+colnames(liquidity_rt)[3] = "liquidity_rt"
+liquidity_bd = liquidity_process("data/bond illiquidity .csv")
+colnames(liquidity_bd)[3] = "liquidity_bd"
+
 institution = read.csv("data/country_ownership.csv")
 colnames(institution) = c("Country","Year","insti_loan")
 institution$Country = tolower(institution$Country)
@@ -1143,6 +1156,8 @@ construct_table9_data = function(grep_search)
   icrg = merge(economic, financial, all=TRUE)
   icrg = merge(icrg, political, all=TRUE)
   icrg = merge(icrg, liquidity, all=TRUE)
+  # icrg = merge(icrg, liquidity_bd, all=TRUE)
+  # icrg = merge(icrg, liquidity_rt, all=TRUE)
   icrg = merge(icrg, institution, all=TRUE)
   icrg$Country = paste0(substring(grep_search,2), icrg$Country)
   icrg$Year = as.Date(paste0(icrg$Year, "-10-01"))
@@ -1154,9 +1169,10 @@ construct_table9_data = function(grep_search)
   # dev_factors$PC = prcomp(dev_factors[,-c(1,2,3)])$x[,1]
   equity = merge(equity, dev_fact, by.x = c("Country","year"), by.y = c("Country.Name","year"))
   
+  # not interpoating the date, country and div_index
   equity[,-c(1,2,3)] = interpolate(subset(equity, select = -c(1,2,3)))
   
-  equity[,c("Country","Div", "year", "TED",  "VIX",  "SENT", "FEDFUNDS","INTERNET","ERM",  "EUROZONE", "COVID", "Aggregate.Economic.Risk", "Aggregate.Financial.Risk", "Aggregate.Poliitical.Risk","liquidity", "PC","insti_loan" )]
+  equity[,c("Country","Div", "year", "TED",  "VIX",  "SENT", "FEDFUNDS","INTERNET","ERM",  "EUROZONE", "COVID", "Aggregate.Economic.Risk", "Aggregate.Financial.Risk", "Aggregate.Poliitical.Risk","liquidity","liquidity_rt","liquidity_bd", "PC","insti_loan" )]
 }
 ```
 
@@ -1529,7 +1545,7 @@ cor(factors[-1])
 Var1 is PC
 
 ```{r echo=FALSE, warning=FALSE}
-write.csv(round(cor(subset(construct_table9_data("^eq_"), select = c(TED, VIX, SENT, FEDFUNDS, INTERNET, ERM, EUROZONE, COVID,liquidity, PC,Aggregate.Economic.Risk,Aggregate.Financial.Risk,Aggregate.Poliitical.Risk))),4),"temp.csv")
+write.csv(round(cor(subset(construct_table9_data("^eq_"), select = c(TED, VIX, SENT, FEDFUNDS, INTERNET, ERM, EUROZONE, COVID, PC,Aggregate.Economic.Risk,Aggregate.Financial.Risk,Aggregate.Poliitical.Risk,liquidity,liquidity_bd,liquidity_rt))),4),"temp.csv")
 ```
 
 # Appendix Table 1
