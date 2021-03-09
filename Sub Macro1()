@@ -1,0 +1,67 @@
+Sub Macro1()
+'
+' Macro1 Macro
+'
+
+'
+    Rows("3:3").Select
+    Selection.Insert Shift:=xlDown, CopyOrigin:=xlFormatFromLeftOrAbove
+    Rows("5:5").Select
+    Selection.Insert Shift:=xlDown, CopyOrigin:=xlFormatFromLeftOrAbove
+    Rows("7:7").Select
+    Selection.Insert Shift:=xlDown, CopyOrigin:=xlFormatFromLeftOrAbove
+    Rows("9:9").Select
+    Selection.Insert Shift:=xlDown, CopyOrigin:=xlFormatFromLeftOrAbove
+    Rows("11:11").Select
+    Selection.Insert Shift:=xlDown, CopyOrigin:=xlFormatFromLeftOrAbove
+    Rows("13:13").Select
+    Selection.Insert Shift:=xlDown, CopyOrigin:=xlFormatFromLeftOrAbove
+    Rows("15:15").Select
+    Selection.Insert Shift:=xlDown, CopyOrigin:=xlFormatFromLeftOrAbove
+    Rows("17:17").Select
+    Selection.Insert Shift:=xlDown, CopyOrigin:=xlFormatFromLeftOrAbove
+    Rows("19:19").Select
+    Selection.Insert Shift:=xlDown, CopyOrigin:=xlFormatFromLeftOrAbove
+    Range("C2:C20").Select
+    Selection.Font.Bold = True
+    Range("C2").Select
+    Selection.Cut
+    Range("B3").Select
+    ActiveSheet.Paste
+    Range("C4").Select
+    Selection.Cut
+    Range("B5").Select
+    ActiveSheet.Paste
+    Range("C6").Select
+    Selection.Cut
+    Range("B7").Select
+    ActiveSheet.Paste
+    Range("C8").Select
+    Selection.Cut
+    Range("B9").Select
+    ActiveSheet.Paste
+    Range("C10").Select
+    Selection.Cut
+    Range("B11").Select
+    ActiveSheet.Paste
+    Range("C12").Select
+    Selection.Cut
+    Range("B13").Select
+    ActiveSheet.Paste
+    Range("C14").Select
+    Selection.Cut
+    Range("B15").Select
+    ActiveSheet.Paste
+    Range("C16").Select
+    Selection.Cut
+    Range("B17").Select
+    ActiveSheet.Paste
+    Range("C18").Select
+    Selection.Cut
+    Range("B19").Select
+    ActiveSheet.Paste
+    Range("A20").Select
+    ActiveCell.FormulaR1C1 = "Adj. Rsq."
+    Range("C20").Select
+    Selection.ClearContents
+End Sub

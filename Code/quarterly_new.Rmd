@@ -325,52 +325,20 @@ getAdjRsq = function(data)
 }
 rsq = getAdjRsq(data)
 
-mkt_cap = read.csv("data/mkt_cap.csv")
-
-colnames(mkt_cap)[1] = "Country.Name"
-mkt_cap$`Country.Name` = tolower(mkt_cap$`Country.Name`)
-mkt_cap$`Country.Name` = str_replace_all(mkt_cap$`Country.Name`," ",".")
-mkt_cap[mkt_cap$`Country.Name` == "cote.d'ivoire",]$`Country.Name` = "côte.d.ivoire"
-mkt_cap[mkt_cap$`Country.Name` == "egypt,.arab.rep.",]$`Country.Name` = "egypt"
-mkt_cap[mkt_cap$`Country.Name` == "hong.kong.sar,.china",]$`Country.Name` = "hong.kong"
-mkt_cap[mkt_cap$`Country.Name` == "korea,.rep.",]$`Country.Name` = "south.korea"
-mkt_cap[mkt_cap$`Country.Name` == "north.macedonia",]$`Country.Name` = "macedonia"
-mkt_cap[mkt_cap$`Country.Name` == "russian.federation",]$`Country.Name` = "russia"
-mkt_cap[mkt_cap$`Country.Name` == "slovak.republic",]$`Country.Name` = "slovakia"
-mkt_cap[mkt_cap$`Country.Name` == "united.states",]$`Country.Name` = "us"
-mkt_cap[mkt_cap$`Country.Name` == "united.kingdom",]$`Country.Name` = "uk"
-mkt_cap[mkt_cap$`Country.Name` == "venezuela,.rb",]$`Country.Name` = "venezuela"
-
-temp_countries = unique(substr(countries,4,1000))
-# setdiff(temp_countries, mkt_cap[mkt_cap$Country.Name %in% temp_countries,]$Country.Name)
-mkt_cap$Country.Name = paste0("eq_",mkt_cap$Country.Name)
-mkt_cap = mkt_cap[mkt_cap$Country.Name %in% countries,]
-# rm(temp_countries)
-colnames(mkt_cap)[-1] = substr(colnames(mkt_cap)[-1],2, 1000)
-mkt_cap = mkt_cap[order(mkt_cap$Country.Name),]
-mkt_cap = mkt_cap[,colSums(is.na(mkt_cap))<nrow(mkt_cap)]
-mkt_cap = mkt_cap[,c(1,13:46)]
-sums = colSums(mkt_cap[,-1], na.rm=TRUE)
-
-# wavg = function(group, avg_name, weight_name)
-# {
-#   return (group[avg_name] * group[weight_name]).sum() / group[weight_name].sum()
-# }
+# mkt_cap = getData("data/mkt_cap.csv")
+# mkt_cap = mkt_cap[!is.na(mkt_cap$Date),]
+# mkt_cap = mkt_cap[mkt_cap$Date >= as.Date("1986-01-01"),]
+# mkt_cap[is.na(mkt_cap)] = 0.01
+# mkt_cap = mkt_cap[order(mkt_cap$Date),]
+# mkt_cap$quarter = as.Date(timeLastDayInQuarter(mkt_cap$Date, format = "%Y-%m-%d", zone = "", FinCenter = ""))
+# mkt_cap = mkt_cap[ !duplicated(mkt_cap[, c("quarter")], fromLast=T),-1]
+# mkt_cap$quarter = NULL
+# sums = as.matrix(rowSums(mkt_cap, na.rm=TRUE))
+# 
+# mkt_cap = mkt_cap/sums
 
 rm(sums)
 
-weighted_rsq = matrix(ncol = 136, nrow = nrow(mkt_cap))
-
-for(i in 1:136)
-{
-  for(j in (1:length(mkt_cap$Country.Name)))
-  {
-    weighted_rsq[j,i] = (1- rsq[which(countries == mkt_cap$Country.Name[j]), i]) * mkt_cap[mkt_cap$Country.Name == mkt_cap$Country.Name[j],as.character(year(quartersList[i]))]/sum(mkt_cap[,as.character(year(quartersList[i]))], na.rm = TRUE)
-
-  }
-}
-# mkt_cap[mkt_cap$Country.Name == "argentina",as.character(year(quartersList[i]))]/sum(mkt_cap[,as.character(year(quartersList[i]))], na.rm = TRUE)
-# eq = (colSums(weighted_rsq, na.rm = TRUE))*100
 eq = (rowMeans(1 - rsq[,grep("^eq_", countries)], na.rm = TRUE))*100
 bd = (rowMeans(1 - rsq[,grep("^bd_", countries)], na.rm = TRUE))*100
 rt = (rowMeans(1 - rsq[,grep("^rt_", countries)], na.rm = TRUE))*100
@@ -386,10 +354,10 @@ par(mfrow = c(3,1))
 plot(quartersList, eq, type="l", ylab="Equity", col="blue", ylim = c(20,100), lwd=2) + abline(eq_lm$coefficients, col="red", lty=2, lwd=2)
 data.frame(quartersList, eq)
 plot(quartersList, bd, type="l", ylab="Bond", col="blue", ylim=c(20,100), lwd=2) + abline(bd_lm$coefficients, col="red", lty=2, lwd=2)
-data.frame(quartersList, bd)
+#data.frame(quartersList, bd)
 plot(quartersList, rt, type="l", ylab="REIT", col="blue", ylim = c(20,100), lwd=2) + abline(rt_lm$coefficients, col="red", lty=2, lwd=2)
 par(mfrow = c(1,1))
-data.frame(quartersList, rt)
+#data.frame(quartersList, rt)
 ```
 
 This plot is the simple average of all the assets
@@ -398,7 +366,7 @@ This plot is the simple average of all the assets
 eq = (rowMeans(1 - rsq, na.rm = TRUE))*100
 eq_lm = lm(eq~(quartersList))
 plot(quartersList, eq, type="l", ylab="All Assets", col="blue", ylim=c(20,100), lwd=2) + abline(eq_lm$coefficients, col="red", lty=2, lwd=2)
-data.frame(quartersList, eq)
+#data.frame(quartersList, eq)
 ```
 
 The recent spike in the diversification index might be explained by relative difference in cases and thus economy.
@@ -441,8 +409,8 @@ plot(quartersList, rowMeans(count_sd[,grep("^eq_", countries)], na.rm = TRUE)*10
 axis(side = 4, at = pretty(c(0,50)))
 mtext("Risk", side = 4, line = 3)
 
-data.frame(quartersList, eq)
-data.frame(quartersList, rowMeans(count_sd[,grep("^eq_", countries)], na.rm = TRUE)*100*sqrt(64))
+# data.frame(quartersList, eq)
+# data.frame(quartersList, rowMeans(count_sd[,grep("^eq_", countries)], na.rm = TRUE)*100*sqrt(64))
 
 
 
@@ -452,8 +420,8 @@ plot(quartersList, rowMeans(count_sd[,grep("^bd_", countries)], na.rm = TRUE)*10
 axis(side = 4, at = pretty(c(0,50)))
 mtext("Risk", side = 4, line = 3)
 
-data.frame(quartersList, bd)
-data.frame(quartersList, rowMeans(count_sd[,grep("^bd_", countries)], na.rm = TRUE)*100*sqrt(64))
+# data.frame(quartersList, bd)
+# data.frame(quartersList, rowMeans(count_sd[,grep("^bd_", countries)], na.rm = TRUE)*100*sqrt(64))
 
 plot(quartersList, rt, type="l", ylab="REIT", col="blue", ylim = c(20,100), lwd=2)
 par(new = TRUE)
@@ -461,8 +429,8 @@ plot(quartersList, rowMeans(count_sd[,grep("^rt_", countries)], na.rm = TRUE)*10
 axis(side = 4, at = pretty(c(0,50)))
 mtext("Risk", side = 4, line = 3)
 
-data.frame(quartersList, rt)
-data.frame(quartersList, rowMeans(count_sd[,grep("^rt_", countries)], na.rm = TRUE)*100*sqrt(64))
+# data.frame(quartersList, rt)
+# data.frame(quartersList, rowMeans(count_sd[,grep("^rt_", countries)], na.rm = TRUE)*100*sqrt(64))
 
 par(mfrow=c(1,1))
 ```
@@ -477,8 +445,8 @@ plot(quartersList, rowMeans(count_sd, na.rm = TRUE)*100*sqrt(64), col="red", xla
 axis(side = 4, at = pretty(c(0,40)))      # Add second axis
 mtext("Risk", side = 4, line = 3)
 
-data.frame(quartersList, eq)
-data.frame(quartersList, rowMeans(count_sd, na.rm = TRUE)*100*sqrt(64))
+# data.frame(quartersList, eq)
+# data.frame(quartersList, rowMeans(count_sd, na.rm = TRUE)*100*sqrt(64))
 ```
 
 ## Correlations
@@ -529,19 +497,19 @@ barplot(bar, names.arg = quartersList, ylim = c(20,100), xpd = FALSE, col = "bro
 par(new=TRUE)
 plot(quartersList, eq, type="l", ylab="Equity", col="blue", ylim = c(20,100), axes = FALSE, lwd=2)
 
-data.frame(quartersList, eq)
+#data.frame(quartersList, eq)
 
 barplot(bar, names.arg = quartersList, ylim = c(20,100), xpd = FALSE, col = "brown", space=0, border = "brown")
 par(new=TRUE)
 plot(quartersList, bd, type="l", ylab="Bond", col="blue", ylim = c(20,100), axes = FALSE, lwd=2)
 
-data.frame(quartersList, bd)
+#data.frame(quartersList, bd)
 
 barplot(bar, names.arg = quartersList, ylim = c(20,100), xpd = FALSE, col = "brown", space=0, border = "brown")
 par(new=TRUE)
 plot(quartersList, rt, type="l", ylab="REIT", col="blue", ylim = c(20,100), axes = FALSE, lwd=2)
 
-data.frame(quartersList, rt)
+#data.frame(quartersList, rt)
 
 par(mfrow=c(1,1))
 ```
@@ -712,21 +680,21 @@ par(mfrow=c(3,1))
 plot(quartersList, (rowMeans(1 - rsq[, intersect(dev_index, grep("^eq_", countries))], na.rm = TRUE))*100, type="l", ylab="Equity", col="blue", ylim=c(20,100), lwd=2) + lines(quartersList, (rowMeans(1 - rsq[,intersect(emerg_index, grep("^eq_", countries))], na.rm = TRUE))*100, col = "green", lwd=2)
 legend("topleft", legend = c("Developed", "Emerging"), col = c("blue", "green"), lty = 1:1)
 
-data.frame(quartersList, (rowMeans(1 - rsq[, intersect(dev_index, grep("^eq_", countries))], na.rm = TRUE))*100)
-data.frame(quartersList, (rowMeans(1 - rsq[, intersect(emerg_index, grep("^eq_", countries))], na.rm = TRUE))*100)
+#data.frame(quartersList, (rowMeans(1 - rsq[, intersect(dev_index, grep("^eq_", countries))], na.rm = TRUE))*100)
+#data.frame(quartersList, (rowMeans(1 - rsq[, intersect(emerg_index, grep("^eq_", countries))], na.rm = TRUE))*100)
 
 
 plot(quartersList, (rowMeans(1 - rsq[, intersect(dev_index, grep("^bd_", countries))], na.rm = TRUE))*100, type="l", ylab="Bond", col="blue", ylim=c(10,100), lwd=2) + lines(quartersList, (rowMeans(1 - rsq[,intersect(emerg_index, grep("^bd_", countries))], na.rm = TRUE))*100, col = "green", lwd=2)
 legend("topleft", legend = c("Developed", "Emerging"), col = c("blue", "green"), lty = 1:1)
 
-data.frame(quartersList, (rowMeans(1 - rsq[, intersect(dev_index, grep("^bd_", countries))], na.rm = TRUE))*100)
-data.frame(quartersList, (rowMeans(1 - rsq[, intersect(emerg_index, grep("^bd_", countries))], na.rm = TRUE))*100)
+#data.frame(quartersList, (rowMeans(1 - rsq[, intersect(dev_index, grep("^bd_", countries))], na.rm = TRUE))*100)
+#data.frame(quartersList, (rowMeans(1 - rsq[, intersect(emerg_index, grep("^bd_", countries))], na.rm = TRUE))*100)
 
 plot(quartersList, (rowMeans(1 - rsq[, intersect(dev_index, grep("^rt_", countries))], na.rm = TRUE))*100, type="l", ylab="REIT", col="blue", ylim=c(20,100), lwd=2) + lines(quartersList, (rowMeans(1 - rsq[,intersect(emerg_index, grep("^rt_", countries))], na.rm = TRUE))*100, col = "green", lwd=2)
 legend("topleft", legend = c("Developed", "Emerging"), col = c("blue", "green"), lty = 1:1)
 
-data.frame(quartersList, (rowMeans(1 - rsq[, intersect(dev_index, grep("^rt_", countries))], na.rm = TRUE))*100)
-data.frame(quartersList, (rowMeans(1 - rsq[, intersect(emerg_index, grep("^rt_", countries))], na.rm = TRUE))*100)
+#data.frame(quartersList, (rowMeans(1 - rsq[, intersect(dev_index, grep("^rt_", countries))], na.rm = TRUE))*100)
+#data.frame(quartersList, (rowMeans(1 - rsq[, intersect(emerg_index, grep("^rt_", countries))], na.rm = TRUE))*100)
 
 par(mfrow=c(1,1))
 ```
@@ -819,7 +787,7 @@ plot(quartersList, rowMeans(1 - rsq[, which(grepl(paste(paste0("eq_",unlist(strs
   lines(quartersList, rowMeans(1 - rsq[, which(grepl(paste(paste0("eq_",unlist(strsplit(eq_countries[3], "\t"))), collapse="|"), countries))], na.rm = TRUE)*100, col="green", lwd=2) + 
   lines(quartersList, rowMeans(1 - rsq[, which(grepl(paste(paste0("eq_",unlist(strsplit(eq_countries[4], "\t"))), collapse="|"), countries))], na.rm = TRUE)*100, col="purple", lwd=2)
 
-data.frame(quartersList, rowMeans(1 - rsq[, which(grepl(paste(paste0("eq_",unlist(strsplit(eq_countries[1], "\t"))), collapse="|"), countries))], na.rm = TRUE)*100, rowMeans(1 - rsq[, which(grepl(paste(paste0("eq_",unlist(strsplit(eq_countries[2], "\t"))), collapse="|"), countries))], na.rm = TRUE)*100, rowMeans(1 - rsq[, which(grepl(paste(paste0("eq_",unlist(strsplit(eq_countries[3], "\t"))), collapse="|"), countries))], na.rm = TRUE)*100, rowMeans(1 - rsq[, which(grepl(paste(paste0("eq_",unlist(strsplit(eq_countries[4], "\t"))), collapse="|"), countries))], na.rm = TRUE)*100)
+# data.frame(quartersList, rowMeans(1 - rsq[, which(grepl(paste(paste0("eq_",unlist(strsplit(eq_countries[1], "\t"))), collapse="|"), countries))], na.rm = TRUE)*100, rowMeans(1 - rsq[, which(grepl(paste(paste0("eq_",unlist(strsplit(eq_countries[2], "\t"))), collapse="|"), countries))], na.rm = TRUE)*100, rowMeans(1 - rsq[, which(grepl(paste(paste0("eq_",unlist(strsplit(eq_countries[3], "\t"))), collapse="|"), countries))], na.rm = TRUE)*100, rowMeans(1 - rsq[, which(grepl(paste(paste0("eq_",unlist(strsplit(eq_countries[4], "\t"))), collapse="|"), countries))], na.rm = TRUE)*100)
 # legend("bottomleft")
 
 eq_countries = table2[,2]
@@ -827,13 +795,13 @@ plot(quartersList, rowMeans(1 - rsq[, which(grepl(paste(paste0("bd_",unlist(strs
   lines(quartersList, rowMeans(1 - rsq[, which(grepl(paste(paste0("bd_",unlist(strsplit(eq_countries[2], "\t"))), collapse="|"), countries))], na.rm = TRUE)*100, col="green", lwd=2) + 
   lines(quartersList, rowMeans(1 - rsq[, which(grepl(paste(paste0("bd_",unlist(strsplit(eq_countries[3], "\t"))), collapse="|"), countries))], na.rm = TRUE)*100, col="purple", lwd=2)
 
-data.frame(quartersList, rowMeans(1 - rsq[, which(grepl(paste(paste0("bd_",unlist(strsplit(eq_countries[1], "\t"))), collapse="|"), countries))], na.rm = TRUE)*100, rowMeans(1 - rsq[, which(grepl(paste(paste0("bd_",unlist(strsplit(eq_countries[2], "\t"))), collapse="|"), countries))], na.rm = TRUE)*100, rowMeans(1 - rsq[, which(grepl(paste(paste0("bd_",unlist(strsplit(eq_countries[3], "\t"))), collapse="|"), countries))], na.rm = TRUE)*100)
+# data.frame(quartersList, rowMeans(1 - rsq[, which(grepl(paste(paste0("bd_",unlist(strsplit(eq_countries[1], "\t"))), collapse="|"), countries))], na.rm = TRUE)*100, rowMeans(1 - rsq[, which(grepl(paste(paste0("bd_",unlist(strsplit(eq_countries[2], "\t"))), collapse="|"), countries))], na.rm = TRUE)*100, rowMeans(1 - rsq[, which(grepl(paste(paste0("bd_",unlist(strsplit(eq_countries[3], "\t"))), collapse="|"), countries))], na.rm = TRUE)*100)
 
 eq_countries = table3[,2]
 plot(quartersList, rowMeans(1 - rsq[, which(grepl(paste(paste0("rt_",unlist(strsplit(eq_countries[1], "\t"))), collapse="|"), countries))], na.rm = TRUE)*100, type="l", col = "red", ylab="Equity", ylim=c(10,100), lwd=2) + 
   lines(quartersList, rowMeans(1 - rsq[, which(grepl(paste(paste0("rt_",unlist(strsplit(eq_countries[2], "\t"))), collapse="|"), countries))], na.rm = TRUE)*100, col="green", lwd=2)
 
-data.frame(quartersList, rowMeans(1 - rsq[, which(grepl(paste(paste0("rt_",unlist(strsplit(eq_countries[1], "\t"))), collapse="|"), countries))], na.rm = TRUE)*100, rowMeans(1 - rsq[, which(grepl(paste(paste0("rt_",unlist(strsplit(eq_countries[2], "\t"))), collapse="|"), countries))], na.rm = TRUE)*100)
+# data.frame(quartersList, rowMeans(1 - rsq[, which(grepl(paste(paste0("rt_",unlist(strsplit(eq_countries[1], "\t"))), collapse="|"), countries))], na.rm = TRUE)*100, rowMeans(1 - rsq[, which(grepl(paste(paste0("rt_",unlist(strsplit(eq_countries[2], "\t"))), collapse="|"), countries))], na.rm = TRUE)*100)
 
 par(mfrow=c(1,1))
 rm(eq_countries)
@@ -973,6 +941,7 @@ factors[length(factors$ERM), "EUROZONE"] = 0
 factors = na.locf(factors, fromLast = TRUE)
 factors$COVID = 0
 factors$COVID[length(factors$COVID)] = 1
+factors$COVID[(length(factors$COVID) - 1)] = 1
 
 NW = function(reg)
 {
@@ -993,14 +962,15 @@ NW = function(reg)
 
 table7_func = function(rsq, caption)
 {
-  a = NW(lm((rowMeans(100 - rsq, na.rm = TRUE)) ~ ., data = factors[-1]))
+  a = NW(lm((rowMeans(100 - rsq*100, na.rm = TRUE)) ~ INTERNET + VIX + TED + SENT + FEDFUNDS, data = factors[-1]))
   all_ass = cbind(data.frame((a$coefficients[,1])), data.frame((a$coefficients[,4])))
   colnames(all_ass) = c("X1","X2")
   all_ass = rbind(all_ass, data.frame(cbind(a$adj.r.squared, NA)))
   colnames(all_ass) = c("Coefficient","p-value")
   all_ass = round(all_ass, 3)
-  
-  pander(all_ass, split.table = 100, style = 'rmarkdown', caption = caption)
+  print(caption)
+  return(all_ass)
+  # pander(all_ass, split.table = 100, style = 'rmarkdown', caption = caption)
 }
 
 table7_func(rsq, "All Assets")
@@ -1657,7 +1627,7 @@ plot(quartersList, equity_median, col="red", xlab = "", ylab = "", type="l", axe
 axis(side = 4, at = pretty(c(-80,40)))
 mtext("Return", side = 4, line = 3)
 
-write.csv(data.frame(quartersList, equity_bearbull, equity_median), "temp.csv")
+# write.csv(data.frame(quartersList, equity_bearbull, equity_median), "temp.csv")
 
 plot(quartersList, bond_bearbull, type = "l", col = "blue", xlab = "Date", ylab = "Bond", lwd = 2) + abline(h=0)
 par(new = TRUE)
@@ -1665,7 +1635,7 @@ plot(quartersList, bond_median, col="red", xlab = "", ylab = "", type="l", axes 
 axis(side = 4, at = pretty(c(-20,20)))
 mtext("Return", side = 4, line = 3)
 
-write.csv(data.frame(quartersList, bond_bearbull, bond_median), "temp.csv")
+# write.csv(data.frame(quartersList, bond_bearbull, bond_median), "temp.csv")
 
 plot(quartersList, reit_bearbull, type = "l", col = "blue", xlab = "Date", ylab = "REIT", lwd = 2) + abline(h=0)
 par(new = TRUE)
@@ -1673,7 +1643,7 @@ plot(quartersList, reit_median, col="red", xlab = "", ylab = "", type="l", axes 
 axis(side = 4, at = pretty(c(-60,40)))
 mtext("Return", side = 4, line = 3)
 
-write.csv(data.frame(quartersList, reit_bearbull, reit_median), "temp.csv")
+# write.csv(data.frame(quartersList, reit_bearbull, reit_median), "temp.csv")
 
 par(mfrow = c(1,1))
 ```
@@ -1841,7 +1811,3 @@ table8_func("^eq_", "Equity", construct_devpc1)
 table8_func("^bd_", "Bond", construct_devpc1)
 table8_func("^rt_", "REIT", construct_devpc1)
 ```
-
-# Pending
-
-* Table 7 formatting
